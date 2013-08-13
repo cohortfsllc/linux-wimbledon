@@ -2495,8 +2495,6 @@ static int _nfs4_server_capabilities(struct nfs_server *server, struct nfs_fh *f
 		server->cache_consistency_bitmask[1] &= FATTR4_WORD1_TIME_METADATA|FATTR4_WORD1_TIME_MODIFY;
 		server->acl_bitmask = res.acl_bitmask;
 		server->fh_expire_type = res.fh_expire_type;
-printk(KERN_INFO "NFS: bitmask=%x | %pS/caps=%x acl_bitmask=%x\n",
-res.attr_bitmask[0], server, server->caps, server->acl_bitmask);
 	}
 
 	return status;
@@ -2641,8 +2639,6 @@ int nfs4_proc_get_rootfh(struct nfs_server *server, struct nfs_fh *fhandle,
 		status = nfs4_server_capabilities(server, fhandle);
 	if (status == 0)
 		status = nfs4_do_fsinfo(server, fhandle, info);
-printk(KERN_INFO "NFS: nfs4_proc_get_rootfh | %pS/caps=%x acl_bitmask=%x\n",
-server, server->caps, server->acl_bitmask);
 
 	return nfs4_map_errors(status);
 }
@@ -2658,8 +2654,6 @@ static int nfs4_proc_get_root(struct nfs_server *server, struct nfs_fh *mntfh,
 		dprintk("nfs4_get_root: getcaps error = %d\n", -error);
 		return error;
 	}
-printk(KERN_INFO "NFS: nfs4_proc_get_root | %pS/caps=%x acl_bitmask=%x\n",
-server, server->caps, server->acl_bitmask);
 
 	error = nfs4_proc_getattr(server, mntfh, fattr);
 	if (error < 0) {
@@ -4153,8 +4147,6 @@ static int __nfs4_proc_set_acl(struct inode *inode, const void *buf, size_t bufl
 	int ret, i;
 
 	if (!nfs4_server_supports_acls(server)) {
-printk(KERN_INFO "NFS: v4 server %s does not support acls. %pS/caps=%x acl=%x\n",
-server->nfs_client->cl_hostname, server, server->caps, server->acl_bitmask);
 		return -EOPNOTSUPP;
 	}
 	if (npages > ARRAY_SIZE(pages))
@@ -4164,8 +4156,6 @@ server->nfs_client->cl_hostname, server, server->caps, server->acl_bitmask);
 		return i;
 	nfs4_inode_return_delegation(inode);
 	ret = nfs4_call_sync(server->client, server, &msg, &arg.seq_args, &res.seq_res, 1);
-printk(KERN_INFO "NFS: __nfs4_proc_set_acl: NFSPROC4_CLNT_SETACL: ret=%d | res %d/%d\n",
-ret, res.seq_res.sr_status, res.seq_res.sr_status_flags);
 
 	/*
 	 * Free each page after tx, so the only ref left is
