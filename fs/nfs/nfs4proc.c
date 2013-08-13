@@ -2495,6 +2495,8 @@ static int _nfs4_server_capabilities(struct nfs_server *server, struct nfs_fh *f
 		server->cache_consistency_bitmask[1] &= FATTR4_WORD1_TIME_METADATA|FATTR4_WORD1_TIME_MODIFY;
 		server->acl_bitmask = res.acl_bitmask;
 		server->fh_expire_type = res.fh_expire_type;
+printk(KERN_INFO "NFS: bitmask=%x | %pS/caps=%x acl_bitmask=%x\n",
+res.attr_bitmask[0], server, server->caps, server->acl_bitmask);
 	}
 
 	return status;
@@ -2639,6 +2641,8 @@ int nfs4_proc_get_rootfh(struct nfs_server *server, struct nfs_fh *fhandle,
 		status = nfs4_server_capabilities(server, fhandle);
 	if (status == 0)
 		status = nfs4_do_fsinfo(server, fhandle, info);
+printk(KERN_INFO "NFS: nfs4_proc_get_rootfh | %pS/caps=%x acl_bitmask=%x\n",
+server, server->caps, server->acl_bitmask);
 
 	return nfs4_map_errors(status);
 }
@@ -2654,6 +2658,8 @@ static int nfs4_proc_get_root(struct nfs_server *server, struct nfs_fh *mntfh,
 		dprintk("nfs4_get_root: getcaps error = %d\n", -error);
 		return error;
 	}
+printk(KERN_INFO "NFS: nfs4_proc_get_root | %pS/caps=%x acl_bitmask=%x\n",
+server, server->caps, server->acl_bitmask);
 
 	error = nfs4_proc_getattr(server, mntfh, fattr);
 	if (error < 0) {
@@ -4146,8 +4152,11 @@ static int __nfs4_proc_set_acl(struct inode *inode, const void *buf, size_t bufl
 	unsigned int npages = DIV_ROUND_UP(buflen, PAGE_SIZE);
 	int ret, i;
 
-	if (!nfs4_server_supports_acls(server))
+	if (!nfs4_server_supports_acls(server)) {
+printk(KERN_INFO "NFS: v4 server %s does not support acls. %pS/caps=%x acl=%x\n",
+server->nfs_client->cl_hostname, server, server->caps, server->acl_bitmask);
 		return -EOPNOTSUPP;
+	}
 	if (npages > ARRAY_SIZE(pages))
 		return -ERANGE;
 	i = buf_to_pages_noslab(buf, buflen, arg.acl_pages, &arg.acl_pgbase);
@@ -4155,6 +4164,8 @@ static int __nfs4_proc_set_acl(struct inode *inode, const void *buf, size_t bufl
 		return i;
 	nfs4_inode_return_delegation(inode);
 	ret = nfs4_call_sync(server->client, server, &msg, &arg.seq_args, &res.seq_res, 1);
+printk(KERN_INFO "NFS: __nfs4_proc_set_acl: NFSPROC4_CLNT_SETACL: ret=%d | res %d/%d\n",
+ret, res.seq_res.sr_status, res.seq_res.sr_status_flags);
 
 	/*
 	 * Free each page after tx, so the only ref left is
@@ -4186,6 +4197,37 @@ static int nfs4_proc_set_acl(struct inode *inode, const void *buf, size_t buflen
 	} while (exception.retry);
 	return err;
 }
+
+#if 1
+static int nfs4_proc_get_xattr(struct inode *inode,
+	const char *key, void *buf, size_t buflen)
+{
+	return -EREMCHG;
+}
+
+static int nfs4_proc_set_xattr(struct inode *inode,
+	const char *key, const void *buf, size_t buflen, int flags)
+{
+#if -0
+	struct nfs4_exception exception = { };
+	int err;
+	do {
+		err = nfs4_handle_exception(NFS_SERVER(inode),
+				__nfs4_proc_set_xattr(inode, key, buf, buflen, flags),
+				&exception);
+	} while (exception.retry);
+	return err;
+#else
+	return -EL2HLT;
+#endif
+}
+
+static size_t nfs4_proc_list_xattrs(struct inode *inode,
+	char *list, size_t list_len)
+{
+	return -ENOTNAM;
+}
+#endif
 
 static int
 nfs4_async_handle_error(struct rpc_task *task, const struct nfs_server *server, struct nfs4_state *state)
@@ -5294,6 +5336,77 @@ static size_t nfs4_xattr_list_nfs4_acl(struct dentry *dentry, char *list,
 		memcpy(list, XATTR_NAME_NFSV4_ACL, len);
 	return len;
 }
+
+#if 1	// XXX
+
+#define for_each_xattr_handler(p,h) while (((h) = *(p)++))
+
+/*
+ * like generic_listxattr, except handle errors right.
+ */
+ssize_t
+nfs_listxattr(struct dentry *dentry, char *buffer, size_t buffer_size)
+{
+	const struct xattr_handler *handler, **handlers = dentry->d_sb->s_xattr;
+	ssize_t rest = buffer_size;
+	char *buf = buffer;
+
+	for_each_xattr_handler(handlers, handler) {
+		ssize_t size = handler->list(dentry, buf, rest,
+				     NULL, 0, handler->flags);
+		if (size < 0)
+			return size;
+		if (buffer) {
+			if (size > rest)
+				return -ERANGE;
+			buf += size;
+		}
+		rest -= size;
+	}
+	return buffer_size - rest;
+}
+
+static int nfs4_xattr_set_user(struct dentry *dentry, const char *key,
+				   const void *buf, size_t buflen,
+				   int flags, int type)
+{
+	if (strcmp(key, "") == 0)
+		return -EINVAL;
+
+#if 0	// how to test: server supports? mount flags?
+	if (0)
+		return -EOPNOTSUPP;
+#endif
+
+// printk("%s: start\n", __func__);
+	return nfs4_proc_set_xattr(dentry->d_inode, key, buf, buflen, flags);
+}
+
+static int nfs4_xattr_get_user(struct dentry *dentry, const char *key,
+				   void *buf, size_t buflen, int type)
+{
+	if (strcmp(key, "") == 0)
+		return -EINVAL;
+
+#if 0	// how to test: server supports? mount flags?
+	if (0)
+		return -EOPNOTSUPP;
+#endif
+
+	return nfs4_proc_get_xattr(dentry->d_inode, key, buf, buflen);
+}
+
+static size_t nfs4_xattr_list_user(struct dentry *dentry, char *list,
+				       size_t list_len, const char *name,
+				       size_t name_len, int type)
+{
+#if 0
+	if (!nfs4_server_supports_acls(NFS_SERVER(dentry->d_inode)))
+		return 0;
+#endif
+	return nfs4_proc_list_xattrs(dentry->d_inode, list, list_len);
+}
+#endif
 
 /*
  * nfs_fhget will use either the mounted_on_fileid or the fileid
@@ -7027,7 +7140,7 @@ const struct inode_operations nfs4_dir_inode_operations = {
 	.setattr	= nfs_setattr,
 	.getxattr	= generic_getxattr,
 	.setxattr	= generic_setxattr,
-	.listxattr	= generic_listxattr,
+	.listxattr	= nfs_listxattr,
 	.removexattr	= generic_removexattr,
 };
 
@@ -7037,7 +7150,7 @@ static const struct inode_operations nfs4_file_inode_operations = {
 	.setattr	= nfs_setattr,
 	.getxattr	= generic_getxattr,
 	.setxattr	= generic_setxattr,
-	.listxattr	= generic_listxattr,
+	.listxattr	= nfs_listxattr,
 	.removexattr	= generic_removexattr,
 };
 
@@ -7106,8 +7219,20 @@ static const struct xattr_handler nfs4_xattr_nfs4_acl_handler = {
 	.set	= nfs4_xattr_set_nfs4_acl,
 };
 
+#if 1	// XXX
+static const struct xattr_handler nfs4_xattr_user_handler = {
+	.prefix	= XATTR_USER_PREFIX,
+	.list	= nfs4_xattr_list_user,
+	.get	= nfs4_xattr_get_user,
+	.set	= nfs4_xattr_set_user,
+};
+#endif
+
 const struct xattr_handler *nfs4_xattr_handlers[] = {
 	&nfs4_xattr_nfs4_acl_handler,
+#if 1	// XXX
+	&nfs4_xattr_user_handler,
+#endif
 	NULL
 };
 
