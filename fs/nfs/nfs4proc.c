@@ -4189,6 +4189,48 @@ static int nfs4_proc_set_acl(struct inode *inode, const void *buf, size_t buflen
 }
 
 #if 1
+
+static int _nfs4_do_openattr(struct inode *inode, struct rpc_cred *cred,
+			    struct nfs_fattr *fattr,
+			    struct nfs_fh *fhandle)
+{
+	struct nfs_server *server = NFS_SERVER(inode);
+        struct nfs4_openattr_arg  arg = {
+                .file_fh        = NFS_FH(inode),
+		.bitmask = server->attr_bitmask,
+        };
+        struct nfs4_openattr_res  res = {
+		.server		= server,
+		.fattr		= fattr,
+		.fh		= fhandle,
+        };
+        struct rpc_message msg = {
+		.rpc_proc	= &nfs4_procedures[NFSPROC4_CLNT_OPENATTR],
+		.rpc_argp	= &arg,
+		.rpc_resp	= &res,
+		.rpc_cred	= cred,
+        };
+	int status;
+
+	nfs_fattr_init(fattr);
+	status = nfs4_call_sync(server->client, server, &msg, &arg.seq_args, &res.seq_res, 0);
+	return status;
+}
+
+static int nfs4_do_openattr(struct inode *inode, struct rpc_cred *cred,
+			   struct nfs_fattr *fattr,
+			   struct nfs_fh *fhandle)
+{
+	struct nfs_server *server = NFS_SERVER(inode);
+	struct nfs4_exception exception;
+	int err;
+	do {
+		err = _nfs4_do_openattr(inode, cred, fattr, fhandle);
+		err = nfs4_handle_exception(server, err, &exception);
+	} while (exception.retry);
+	return err;
+}
+
 static int nfs4_proc_get_xattr(struct inode *inode,
 	const char *key, void *buf, size_t buflen)
 {
@@ -4215,7 +4257,26 @@ static int nfs4_proc_set_xattr(struct inode *inode,
 static size_t nfs4_proc_list_xattrs(struct inode *inode,
 	char *list, size_t list_len)
 {
-	return -ENOTNAM;
+	struct nfs_fh fhandle[1];
+	struct nfs_fattr fattr[1];
+	int err;
+	struct rpc_cred *cred;
+struct nfs_fh *input = NFS_FH(inode);
+
+	cred = rpc_lookup_cred();
+	if (IS_ERR(cred))
+                return PTR_ERR(cred);
+fhandle->size = 0;
+	err = nfs4_do_openattr(inode, cred, fattr, fhandle);
+if (fhandle->size > 0 && fhandle->size <= sizeof fhandle->data) {
+printk(KERN_ERR "NFS: openattr: err=%d %*phD -> %*phD\n",
+err, input->size, input->data, fhandle->size, fhandle->data);
+} else {
+printk(KERN_ERR "NFS: openattr: err=%d %*phD -> ?\n",
+err, input->size, input->data);
+}
+	put_rpccred(cred);
+	return 0;
 }
 #endif
 
