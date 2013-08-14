@@ -931,6 +931,19 @@ struct nfs4_lookup_root_arg {
 	const u32 *			bitmask;
 };
 
+struct nfs4_openattr_arg {
+	struct nfs4_sequence_args	seq_args;
+	const struct nfs_fh *		file_fh;
+	const u32 *			bitmask;
+};
+
+struct nfs4_openattr_res {
+	struct nfs4_sequence_res	seq_res;
+	const struct nfs_server *	server;
+	struct nfs_fattr *		fattr;
+	struct nfs_fh *			fh;
+};
+
 struct nfs4_pathconf_arg {
 	struct nfs4_sequence_args	seq_args;
 	const struct nfs_fh *		fh;

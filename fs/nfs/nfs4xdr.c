@@ -204,6 +204,8 @@ static int nfs4_stat_to_errno(int);
 #define encode_commit_maxsz	(op_encode_hdr_maxsz + 3)
 #define decode_commit_maxsz	(op_decode_hdr_maxsz + \
 				 decode_verifier_maxsz)
+#define encode_openattr_maxsz  (op_encode_hdr_maxsz + 1)
+#define decode_openattr_maxsz  (op_decode_hdr_maxsz)
 #define encode_remove_maxsz	(op_encode_hdr_maxsz + \
 				nfs4_name_maxsz)
 #define decode_remove_maxsz	(op_decode_hdr_maxsz + \
@@ -602,6 +604,18 @@ static int nfs4_stat_to_errno(int);
 #define NFS4_dec_lookup_root_sz (compound_decode_hdr_maxsz + \
 				decode_sequence_maxsz + \
 				decode_putrootfh_maxsz + \
+				decode_getattr_maxsz + \
+				decode_getfh_maxsz)
+#define NFS4_enc_openattr_sz (compound_encode_hdr_maxsz + \
+				encode_sequence_maxsz + \
+				encode_putfh_maxsz + \
+				encode_openattr_maxsz + \
+				encode_getattr_maxsz + \
+				encode_getfh_maxsz)
+#define NFS4_dec_openattr_sz (compound_decode_hdr_maxsz + \
+				decode_sequence_maxsz + \
+				decode_putfh_maxsz + \
+				decode_openattr_maxsz + \
 				decode_getattr_maxsz + \
 				decode_getfh_maxsz)
 #define NFS4_enc_remove_sz	(compound_encode_hdr_maxsz + \
@@ -1506,6 +1520,12 @@ static void encode_open_downgrade(struct xdr_stream *xdr, const struct nfs_close
 	encode_share_access(xdr, arg->fmode);
 }
 
+static void encode_openattr(struct xdr_stream *xdr, struct compound_hdr *hdr)
+{
+	encode_op_hdr(xdr, OP_OPENATTR, decode_openattr_maxsz, hdr);
+	encode_uint32(xdr, 0);	// createdir
+}
+
 static void
 encode_putfh(struct xdr_stream *xdr, const struct nfs_fh *fh, struct compound_hdr *hdr)
 {
@@ -2072,6 +2092,25 @@ static void nfs4_xdr_enc_lookup_root(struct rpc_rqst *req,
 	encode_compound_hdr(xdr, req, &hdr);
 	encode_sequence(xdr, &args->seq_args, &hdr);
 	encode_putrootfh(xdr, &hdr);
+	encode_getfh(xdr, &hdr);
+	encode_getfattr(xdr, args->bitmask, &hdr);
+	encode_nops(&hdr);
+}
+
+/*
+ * Encode OPENATTR request
+ */
+static void nfs4_xdr_enc_openattr(struct rpc_rqst *req, struct xdr_stream *xdr,
+				const struct nfs4_openattr_arg *args)
+{
+	struct compound_hdr hdr = {
+		.minorversion = nfs4_xdr_minorversion(&args->seq_args),
+	};
+
+	encode_compound_hdr(xdr, req, &hdr);
+	encode_sequence(xdr, &args->seq_args, &hdr);
+	encode_putfh(xdr, args->file_fh, &hdr);
+	encode_openattr(xdr, &hdr);
 	encode_getfh(xdr, &hdr);
 	encode_getfattr(xdr, args->bitmask, &hdr);
 	encode_nops(&hdr);
@@ -4902,6 +4941,11 @@ static int decode_open_downgrade(struct xdr_stream *xdr, struct nfs_closeres *re
 	return status;
 }
 
+static int decode_openattr(struct xdr_stream *xdr)
+{
+	return decode_op_hdr(xdr, OP_OPENATTR);
+}
+
 static int decode_putfh(struct xdr_stream *xdr)
 {
 	return decode_op_hdr(xdr, OP_PUTFH);
@@ -5941,6 +5985,35 @@ static int nfs4_xdr_dec_lookup_root(struct rpc_rqst *rqstp,
 	if (status)
 		goto out;
 	status = decode_putrootfh(xdr);
+	if (status)
+		goto out;
+	status = decode_getfh(xdr, res->fh);
+	if (status == 0)
+		status = decode_getfattr(xdr, res->fattr, res->server);
+out:
+	return status;
+}
+
+/*
+ * Decode OPENATTR response
+ */
+static int nfs4_xdr_dec_openattr(struct rpc_rqst *rqstp,
+				    struct xdr_stream *xdr,
+				    struct nfs4_openattr_res *res)
+{
+	struct compound_hdr hdr;
+	int status;
+
+	status = decode_compound_hdr(xdr, &hdr);
+	if (status)
+		goto out;
+	status = decode_sequence(xdr, &res->seq_res, rqstp);
+	if (status)
+		goto out;
+	status = decode_putfh(xdr);
+	if (status)
+		goto out;
+	status = decode_openattr(xdr);
 	if (status)
 		goto out;
 	status = decode_getfh(xdr, res->fh);
@@ -7223,6 +7296,7 @@ struct rpc_procinfo	nfs4_procedures[] = {
 	PROC(GETATTR,		enc_getattr,		dec_getattr),
 	PROC(LOOKUP,		enc_lookup,		dec_lookup),
 	PROC(LOOKUP_ROOT,	enc_lookup_root,	dec_lookup_root),
+	PROC(OPENATTR,		enc_openattr,		dec_openattr),
 	PROC(REMOVE,		enc_remove,		dec_remove),
 	PROC(RENAME,		enc_rename,		dec_rename),
 	PROC(LINK,		enc_link,		dec_link),
