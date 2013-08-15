@@ -4191,6 +4191,7 @@ static int nfs4_proc_set_acl(struct inode *inode, const void *buf, size_t buflen
 #if 1
 
 static int _nfs4_do_openattr(struct inode *inode, struct rpc_cred *cred,
+			    int createdir,
 			    struct nfs_fattr *fattr,
 			    struct nfs_fh *fhandle)
 {
@@ -4198,6 +4199,7 @@ static int _nfs4_do_openattr(struct inode *inode, struct rpc_cred *cred,
         struct nfs4_openattr_arg  arg = {
                 .file_fh        = NFS_FH(inode),
 		.bitmask = server->attr_bitmask,
+		.createdir = createdir,
         };
         struct nfs4_openattr_res  res = {
 		.server		= server,
@@ -4218,6 +4220,7 @@ static int _nfs4_do_openattr(struct inode *inode, struct rpc_cred *cred,
 }
 
 static int nfs4_do_openattr(struct inode *inode, struct rpc_cred *cred,
+			   int createdir,
 			   struct nfs_fattr *fattr,
 			   struct nfs_fh *fhandle)
 {
@@ -4225,7 +4228,7 @@ static int nfs4_do_openattr(struct inode *inode, struct rpc_cred *cred,
 	struct nfs4_exception exception;
 	int err;
 	do {
-		err = _nfs4_do_openattr(inode, cred, fattr, fhandle);
+		err = _nfs4_do_openattr(inode, cred, createdir, fattr, fhandle);
 		err = nfs4_handle_exception(server, err, &exception);
 	} while (exception.retry);
 	return err;
@@ -4260,14 +4263,17 @@ static size_t nfs4_proc_list_xattrs(struct inode *inode,
 	struct nfs_fh fhandle[1];
 	struct nfs_fattr fattr[1];
 	int err;
-	struct rpc_cred *cred;
+	size_t ret;
+	struct rpc_cred *cred = NULL;
+	struct inode *dir = 0;
+	struct file *filp = 0;
 struct nfs_fh *input = NFS_FH(inode);
 
 	cred = rpc_lookup_cred();
 	if (IS_ERR(cred))
                 return PTR_ERR(cred);
 fhandle->size = 0;
-	err = nfs4_do_openattr(inode, cred, fattr, fhandle);
+	err = nfs4_do_openattr(inode, cred, 0, fattr, fhandle);
 if (fhandle->size > 0 && fhandle->size <= sizeof fhandle->data) {
 printk(KERN_ERR "NFS: openattr: err=%d %*phD -> %*phD\n",
 err, input->size, input->data, fhandle->size, fhandle->data);
@@ -4275,8 +4281,27 @@ err, input->size, input->data, fhandle->size, fhandle->data);
 printk(KERN_ERR "NFS: openattr: err=%d %*phD -> ?\n",
 err, input->size, input->data);
 }
-	put_rpccred(cred);
-	return 0;
+	if (err) {
+		ret = err;
+		goto out;
+	}
+#if 0
+	dir = nfs_fhget(inode->i_sb, fhandle, fattr);
+	if (IS_ERR(dir)) {
+		ret = PTR_ERR(dir);
+		dir = 0;
+		goto out;
+	}
+#endif
+	ret = 0;
+out:
+	if (filp)
+		filp_close(filp, NULL);
+	if (dir)
+		iput(dir);
+	if (cred)
+		put_rpccred(cred);
+	return ret;
 }
 #endif
 
