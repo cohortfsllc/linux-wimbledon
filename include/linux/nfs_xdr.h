@@ -935,6 +935,7 @@ struct nfs4_openattr_arg {
 	struct nfs4_sequence_args	seq_args;
 	const struct nfs_fh *		file_fh;
 	const u32 *			bitmask;
+	int				createdir;
 };
 
 struct nfs4_openattr_res {

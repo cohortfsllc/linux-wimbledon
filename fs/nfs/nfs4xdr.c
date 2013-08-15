@@ -1520,10 +1520,10 @@ static void encode_open_downgrade(struct xdr_stream *xdr, const struct nfs_close
 	encode_share_access(xdr, arg->fmode);
 }
 
-static void encode_openattr(struct xdr_stream *xdr, struct compound_hdr *hdr)
+static void encode_openattr(struct xdr_stream *xdr, int createdir, struct compound_hdr *hdr)
 {
 	encode_op_hdr(xdr, OP_OPENATTR, decode_openattr_maxsz, hdr);
-	encode_uint32(xdr, 0);	// createdir
+	encode_uint32(xdr, createdir);
 }
 
 static void
@@ -2110,7 +2110,7 @@ static void nfs4_xdr_enc_openattr(struct rpc_rqst *req, struct xdr_stream *xdr,
 	encode_compound_hdr(xdr, req, &hdr);
 	encode_sequence(xdr, &args->seq_args, &hdr);
 	encode_putfh(xdr, args->file_fh, &hdr);
-	encode_openattr(xdr, &hdr);
+	encode_openattr(xdr, args->createdir, &hdr);
 	encode_getfh(xdr, &hdr);
 	encode_getfattr(xdr, args->bitmask, &hdr);
 	encode_nops(&hdr);
