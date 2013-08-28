@@ -179,6 +179,10 @@ struct nfs_server {
 	u32			mountd_version;
 	unsigned short		mountd_port;
 	unsigned short		mountd_protocol;
+// TTT
+	unsigned char client_side_keylen;
+	unsigned char *client_side_key;
+// TTT
 };
 
 /* Server capabilities */

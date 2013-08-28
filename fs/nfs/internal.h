@@ -115,6 +115,10 @@ struct nfs_parsed_mount_data {
 
 	struct security_mnt_opts lsm_opts;
 	struct net		*net;
+// TTT
+	unsigned char client_side_keylen;
+	unsigned char *client_side_key;
+// TTT
 };
 
 /* mount_clnt.c */

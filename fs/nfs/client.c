@@ -1030,6 +1030,7 @@ void nfs_free_server(struct nfs_server *server)
 	ida_destroy(&server->openowner_id);
 	nfs_free_iostats(server->io_stats);
 	bdi_destroy(&server->backing_dev_info);
+	kfree(server->client_side_key);	// TTT
 	kfree(server);
 	nfs_release_automount_timer();
 	dprintk("<-- nfs_free_server()\n");
@@ -1050,6 +1051,7 @@ struct nfs_server *nfs_create_server(struct nfs_mount_info *mount_info,
 	server = nfs_alloc_server();
 	if (!server)
 		return ERR_PTR(-ENOMEM);
+printk(KERN_INFO "NFS: nfs_create_server: %lx\n", (long) server);
 
 	error = -ENOMEM;
 	fattr = nfs_alloc_fattr();
@@ -1130,6 +1132,20 @@ struct nfs_server *nfs_clone_server(struct nfs_server *source,
 	server->destroy = source->destroy;
 	atomic_inc(&server->nfs_client->cl_count);
 	nfs_server_copy_userdata(server, source);
+	// TTT
+printk(KERN_INFO "NFS: nfs_clone_server: p=%lx k=%lx\n",
+(long) server, (long) source->client_side_key);
+	if (source->client_side_key) {
+		char *k = kmalloc(source->client_side_keylen, GFP_KERNEL);
+		if (!k) {
+			error = -ENOMEM;
+			goto out_free_server;
+		}
+		memcpy(k, source->client_side_key, source->client_side_keylen);
+		server->client_side_key = k;
+		server->client_side_keylen = source->client_side_keylen;
+	}
+	// TTT
 
 	server->fsid = fattr->fsid;
 

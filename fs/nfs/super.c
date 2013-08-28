@@ -111,6 +111,7 @@ enum {
 	Opt_lookupcache,
 	Opt_fscache_uniq,
 	Opt_local_lock,
+	Opt_key,	// TTT
 
 	/* Special mount options */
 	Opt_userspace, Opt_deprecated, Opt_sloppy,
@@ -183,6 +184,7 @@ static const match_table_t nfs_mount_option_tokens = {
 	{ Opt_lookupcache, "lookupcache=%s" },
 	{ Opt_fscache_uniq, "fsc=%s" },
 	{ Opt_local_lock, "local_lock=%s" },
+	{ Opt_key, "key=%s" },	// TTT
 
 	/* The following needs to be listed after all other options */
 	{ Opt_nfsvers, "v%s" },
@@ -706,6 +708,14 @@ static void nfs_show_mount_options(struct seq_file *m, struct nfs_server *nfss,
 		seq_printf(m, ",local_lock=flock");
 	else
 		seq_printf(m, ",local_lock=posix");
+
+	// TTT
+	if (nfss->client_side_key) {
+		seq_printf(m, ",key=%*phN",
+			nfss->client_side_keylen, nfss->client_side_key);
+	}
+seq_printf(m, ",p=%lx", (long)nfss);
+	// TTT
 }
 
 /*
@@ -939,6 +949,7 @@ static void nfs_free_parsed_mount_data(struct nfs_parsed_mount_data *data)
 		kfree(data->nfs_server.hostname);
 		kfree(data->fscache_uniq);
 		security_free_mnt_opts(&data->lsm_opts);
+		kfree(data->client_side_key);	// TTT
 		kfree(data);
 	}
 }
@@ -1102,6 +1113,47 @@ static int nfs_parse_version_string(char *string,
 	}
 	return 1;
 }
+
+// TTT
+static int nfs_parse_client_side_key(char *string, struct nfs_parsed_mount_data *mnt)
+{
+	char *s = string;
+	char *k;
+	char t[3];
+	char *d;
+	int l, r;
+	long dx[1];
+
+	l = strlen(string)/2;
+	k = kmalloc(l, GFP_KERNEL);
+	if (!k)
+		return -1;
+	d = k;
+	t[2] = 0;
+	while (s[0] && s[1]) {
+		t[0] = s[0];
+		t[1] = s[1];
+		r = kstrtol(t, 16, dx);
+		if (r) {
+			dfprintk(MOUNT, "NFS: nonhex digit\n");
+			kfree(k);
+			return -1;
+		}
+		*d = *dx;
+		++d;
+		s += 2;
+	}
+	if (*s) {
+		dfprintk(MOUNT, "NFS: odd # hex digits\n");
+		kfree(k);
+		return -1;
+	}
+	
+	mnt->client_side_keylen = l;
+	mnt->client_side_key = k;
+	return 0;
+}
+// TTT
 
 static int nfs_get_option_str(substring_t args[], char **option)
 {
@@ -1526,6 +1578,17 @@ static int nfs_parse_mount_options(char *raw,
 				return 0;
 			};
 			break;
+// TTT
+		case Opt_key:
+			string = match_strdup(args);
+			if (nfs_parse_client_side_key(string, mnt)) {
+				invalid_option = 1;
+				dfprintk(MOUNT, "NFS:	invalid	"
+						"key\n");
+			}
+			kfree(string);
+			break;
+// TTT
 
 		/*
 		 * Special options

@@ -818,6 +818,19 @@ static int nfs4_init_server(struct nfs_server *server,
 
 	server->port = data->nfs_server.port;
 
+	// TTT
+printk(KERN_INFO "NFS: nfs4_init_server: p=%lx k=%lx\n",
+(long) server, (long) data->client_side_key);
+	if (data->client_side_key) {
+		char *k = kmalloc(data->client_side_keylen, GFP_KERNEL);
+		if (!k)
+			return -ENOMEM;
+		memcpy(k, data->client_side_key, data->client_side_keylen);
+		server->client_side_key = k;
+		server->client_side_keylen = data->client_side_keylen;
+	}
+	// TTT
+
 	error = nfs_init_server_rpcclient(server, &timeparms, data->auth_flavors[0]);
 
 error:
@@ -843,6 +856,7 @@ struct nfs_server *nfs4_create_server(struct nfs_mount_info *mount_info,
 	server = nfs_alloc_server();
 	if (!server)
 		return ERR_PTR(-ENOMEM);
+printk(KERN_INFO "NFS: nfs4_create_server: %lx\n", (long) server);
 
 	/* set up the general RPC client */
 	error = nfs4_init_server(server, mount_info->parsed);
@@ -877,6 +891,7 @@ struct nfs_server *nfs4_create_referral_server(struct nfs_clone_mount *data,
 	server = nfs_alloc_server();
 	if (!server)
 		return ERR_PTR(-ENOMEM);
+printk(KERN_INFO "NFS: nfs4_create_referral_server: %lx\n", (long) server);
 
 	parent_server = NFS_SB(data->sb);
 	parent_client = parent_server->nfs_client;
