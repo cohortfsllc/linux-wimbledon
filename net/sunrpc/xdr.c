@@ -226,7 +226,7 @@ _shift_data_right_pages(struct page **pages, size_t pgto_base,
  * Copies data from an arbitrary memory location into an array of pages
  * The copy is assumed to be non-overlapping.
  */
-static void
+void
 _copy_to_pages(struct page **pages, size_t pgbase, const char *p, size_t len)
 {
 	struct page **pgto;
@@ -259,6 +259,7 @@ _copy_to_pages(struct page **pages, size_t pgbase, const char *p, size_t len)
 	}
 	flush_dcache_page(*pgto);
 }
+EXPORT_SYMBOL_GPL(_copy_to_pages);
 
 /**
  * _copy_from_pages
