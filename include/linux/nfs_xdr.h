@@ -1227,6 +1227,8 @@ struct nfs_read_data {
 	__u64			mds_offset;
 	struct nfs_page_array	pages;
 	struct nfs_client	*ds_clp;	/* pNFS data server */
+	struct page **		encryptedpages;
+	int			encryptednpages;
 };
 
 /* used as flag bits in nfs_pgio_header */
@@ -1279,6 +1281,8 @@ struct nfs_write_data {
 	__u64			mds_offset;	/* Filelayout dense stripe */
 	struct nfs_page_array	pages;
 	struct nfs_client	*ds_clp;	/* pNFS data server */
+	struct page **		encryptedpages;
+	int			encryptednpages;
 };
 
 struct nfs_write_header {
