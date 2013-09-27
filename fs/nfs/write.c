@@ -100,6 +100,7 @@ static struct nfs_write_data *nfs_writedata_alloc(struct nfs_pgio_header *hdr,
 		goto out;
 
 	if (nfs_pgarray_set(&data->pages, pagecount)) {
+		data->encryptedpages = 0;
 		data->header = hdr;
 		atomic_inc(&hdr->refcnt);
 	} else {
@@ -126,6 +127,10 @@ void nfs_writedata_release(struct nfs_write_data *wdata)
 	put_nfs_open_context(wdata->args.context);
 	if (wdata->pages.pagevec != wdata->pages.page_array)
 		kfree(wdata->pages.pagevec);
+	if (wdata->encryptedpages) {
+		nfs_free_encrypted_pages(wdata->encryptedpages, wdata->encryptednpages);
+		wdata->encryptedpages = 0;
+	}
 	if (wdata == &write_header->rpc_data) {
 		wdata->header = NULL;
 		wdata = NULL;
@@ -997,11 +1002,13 @@ EXPORT_SYMBOL_GPL(nfs_initiate_write);
 /*
  * Set up the argument/result storage required for the RPC call.
  */
-static void nfs_write_rpcsetup(struct nfs_write_data *data,
+static int nfs_write_rpcsetup(struct nfs_write_data *data,
 		unsigned int count, unsigned int offset,
 		int how, struct nfs_commit_info *cinfo)
 {
 	struct nfs_page *req = data->header->req;
+	struct nfs_server *server = NFS_SERVER(data->header->inode);
+	int r;
 
 	/* Set up the RPC argument and reply structs
 	 * NB: take care not to mess about with data->commit et al. */
@@ -1010,8 +1017,23 @@ static void nfs_write_rpcsetup(struct nfs_write_data *data,
 	data->args.offset = req_offset(req) + offset;
 	/* pnfs_set_layoutcommit needs this */
 	data->mds_offset = data->args.offset;
-	data->args.pgbase = req->wb_pgbase + offset;
-	data->args.pages  = data->pages.pagevec;
+	if (server->client_side_key) {
+		if (data->encryptedpages) {
+printk("NFS: left-over encrypted pages? %lx\n", (long)data->encryptedpages);
+			nfs_free_encrypted_pages(data->encryptedpages, data->encryptednpages);
+		}
+		r = nfs_alloc_encrypted_pages(count, &data->encryptednpages,
+			&data->encryptedpages);
+		if (r) return r;
+		nfs_write_encrypted_pages(data->encryptedpages,
+			0, count, data->pages.pagevec, req->wb_pgbase + offset);
+		// XXX encrypt here!
+		data->args.pages  = data->encryptedpages;
+		data->args.pgbase = 0;
+	} else {
+		data->args.pgbase = req->wb_pgbase + offset;
+		data->args.pages  = data->pages.pagevec;
+	}
 	data->args.count  = count;
 	data->args.context = get_nfs_open_context(req->wb_context);
 	data->args.lock_context = req->wb_lock_context;
@@ -1030,6 +1052,7 @@ static void nfs_write_rpcsetup(struct nfs_write_data *data,
 	data->res.count   = count;
 	data->res.verf    = &data->verf;
 	nfs_fattr_init(&data->fattr);
+	return 0;
 }
 
 static int nfs_do_write(struct nfs_write_data *data,
@@ -1116,6 +1139,7 @@ static int nfs_flush_multi(struct nfs_pageio_descriptor *desc,
 	unsigned int offset;
 	int requests = 0;
 	struct nfs_commit_info cinfo;
+	int r;
 
 	nfs_init_cinfo(&cinfo, desc->pg_inode, desc->pg_dreq);
 
@@ -1136,7 +1160,11 @@ static int nfs_flush_multi(struct nfs_pageio_descriptor *desc,
 			return -ENOMEM;
 		}
 		data->pages.pagevec[0] = page;
-		nfs_write_rpcsetup(data, len, offset, desc->pg_ioflags, &cinfo);
+		r = nfs_write_rpcsetup(data, len, offset, desc->pg_ioflags, &cinfo);
+		if (r) {
+			nfs_flush_error(desc, hdr);
+			return r;
+		}
 		list_add(&data->list, &hdr->rpc_list);
 		requests++;
 		nbytes -= len;
@@ -1164,6 +1192,7 @@ static int nfs_flush_one(struct nfs_pageio_descriptor *desc,
 	struct nfs_write_data	*data;
 	struct list_head *head = &desc->pg_list;
 	struct nfs_commit_info cinfo;
+	int r;
 
 	data = nfs_writedata_alloc(hdr, nfs_page_array_len(desc->pg_base,
 							   desc->pg_count));
@@ -1186,7 +1215,11 @@ static int nfs_flush_one(struct nfs_pageio_descriptor *desc,
 		desc->pg_ioflags &= ~FLUSH_COND_STABLE;
 
 	/* Set up the argument struct */
-	nfs_write_rpcsetup(data, desc->pg_count, 0, desc->pg_ioflags, &cinfo);
+	r = nfs_write_rpcsetup(data, desc->pg_count, 0, desc->pg_ioflags, &cinfo);
+	if (r) {
+		nfs_flush_error(desc, hdr);
+		return -ENOMEM;
+	}
 	list_add(&data->list, &hdr->rpc_list);
 	desc->pg_rpc_callops = &nfs_write_common_ops;
 	return 0;
