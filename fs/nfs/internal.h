@@ -235,6 +235,16 @@ extern void nfs_pgheader_init(struct nfs_pageio_descriptor *desc,
 void nfs_set_pgio_error(struct nfs_pgio_header *hdr, int error, loff_t pos);
 int nfs_iocounter_wait(struct nfs_io_counter *c);
 
+extern int nfs_alloc_encrypted_pages(size_t count,
+	int *npagesp, struct page ***rpages);
+void nfs_free_encrypted_pages(struct page **pages, int npages);
+size_t nfs_read_encrypted_pages(struct page **encrypted, size_t encryptedoff,
+    size_t count,
+    struct page **pages, size_t pgbase);
+size_t nfs_write_encrypted_pages(struct page **encrypted, size_t encryptedoff,
+    size_t count,
+    struct page **pages, size_t pgbase);
+
 static inline void nfs_iocounter_init(struct nfs_io_counter *c)
 {
 	c->flags = 0;
