@@ -528,40 +528,51 @@ void nfs_destroy_nfspagecache(void)
 /**
  * nfs_alloc_encrypted_pages - allocate pages for client-side encrypted data.
  * @count: length
- * @npagesp: to receive # of pages allocated
- * @rpages: to receive page array
+ * @el: encrypted list: result will be inserted at start
  *
- * On success: fill in *rpages, *npagesp.
+ * On success: set el->pages, el->npages, el->next
  * Returns zero, or -ENOMEM
  */
 
-int nfs_alloc_encrypted_pages(size_t count,
-	int *npagesp, struct page ***rpages)
+int nfs_alloc_encrypted_pages(size_t count, struct encrypted_list *el)
 {
-    struct page **pages;
-    int npages;
-    int i;
+	struct page **pages;
+	int npages;
+	int i;
+	struct encrypted_list *ep;
 
-    *rpages = 0;
-    npages = DIV_ROUND_UP(count, PAGE_SIZE);
-    *npagesp = npages;
-    pages = kzalloc(npages * sizeof *pages, GFP_NOFS);
-    if (!pages)
-	return -ENOMEM;
+	if (el->pages) {
+		ep = kzalloc(sizeof *ep, GFP_NOFS);
+		if (!ep)
+			return -ENOMEM;
+		*ep = *el;
+		el->next = ep;
+		el->pages = 0;
+	}
+	npages = DIV_ROUND_UP(count, PAGE_SIZE);
+	el->npages = npages;
+	pages = kzalloc(npages * sizeof *pages, GFP_NOFS);
+	if (!pages) {
+		return -ENOMEM;
+	}
 
-    for (i = 0; i < npages; ++i) {
-	pages[i] = alloc_page(GFP_KERNEL);
-	if (pages[i] == NULL)
-	    goto unwind;
-    }
-    *rpages = pages;
-    return 0;
+	for (i = 0; i < npages; ++i) {
+		pages[i] = alloc_page(GFP_KERNEL);
+		if (pages[i] == NULL)
+			goto unwind;
+	}
+	el->pages = pages;
+	return 0;
 
 unwind:
-    while (--i >= 0)
-	__free_page(pages[i]);
-    kfree(pages);
-    return -ENOMEM;
+	while (--i >= 0)
+		__free_page(pages[i]);
+	kfree(pages);
+	if ((ep = el->next)) {
+		*el = *ep;
+		kfree(ep);
+	}
+	return -ENOMEM;
 }
 
 /**
@@ -572,62 +583,78 @@ unwind:
  * Free array of pages allocated by nfs_alloc_encrypted_pages.
  */
 
-void nfs_free_encrypted_pages(struct page **pages, int npages)
+static void nfs_free_encrypted_pages(struct page **pages, int npages)
 {
-    int i;
+	int i;
 
-    if (!pages)
-	return;
-    for (i = 0; i < npages; ++i)
-	if (pages[i])
-	    put_page(pages[i]);
-    kfree(pages);
+	if (!pages)
+		return;
+	for (i = 0; i < npages; ++i)
+		if (pages[i])
+			put_page(pages[i]);
+	kfree(pages);
+}
+
+void nfs_free_encrypted_list(struct encrypted_list *el)
+{
+	struct encrypted_list *ep;
+
+	for (ep = el; ep; ep = ep->next) {
+		nfs_free_encrypted_pages(ep->pages, ep->npages);
+	}
+	el->pages = 0;
+	while ((ep = el->next)) {
+		el->next = ep->next;
+		kfree(ep);
+	}
 }
 
 static size_t nfs_readwrite_encrypted_pages(struct page **pages, size_t off,
 	size_t (*rwfunc)(void *, char *, size_t),
 	void *data, size_t count)
 {
-    struct page **pg;
-    char *vp;
-    size_t copy, cr, r;
+	struct page **pg;
+	char *vp;
+	size_t copy, cr, r;
 
-    pg = pages + (off >> PAGE_CACHE_SHIFT);
-    off &= ~PAGE_CACHE_MASK;
-    r = 0;
-    for (;;) {
-	copy = PAGE_CACHE_SIZE - off;
-	if (copy > count) copy = count;
-	vp = page_address(*pg);
+	pg = pages + (off >> PAGE_CACHE_SHIFT);
+	off &= ~PAGE_CACHE_MASK;
+	r = 0;
+	for (;;) {
+		copy = PAGE_CACHE_SIZE - off;
+		if (copy > count) copy = count;
+		vp = page_address(*pg);
 
-	cr = rwfunc(data, vp + off, copy);
-	if (cr < 0) {
-	    r = cr;
-	    break;
+		cr = rwfunc(data, vp + off, copy);
+		if (cr < 0) {
+			r = cr;
+			break;
+		}
+		count -= copy;
+		off += copy;
+		r += copy;
+		if (cr != copy || count == 0)
+			break;
+		if (off == PAGE_CACHE_SIZE) {
+			off = 0;
+			++pg;
+		}
 	}
-	count -= copy;
-	off += copy;
-	r += copy;
-	if (cr != copy || count == 0)
-	    break;
-	if (off == PAGE_CACHE_SIZE) {
-	    off = 0;
-	    ++pg;
-	}
-    }
-    return r;
+	return r;
 }
 
 struct rwdata {
-    struct page **pages;
-    size_t pgbase;
+	struct page **pages;
+	size_t pgbase;
 };
 
 static size_t _nfs_read_encrypted_pages(void *d, char *buf, size_t len)
 {
-    struct rwdata *rwdata = d;
-    _copy_to_pages(rwdata->pages, rwdata->pgbase, buf, len);
-    return len;
+	struct rwdata *rwdata = d;
+
+	_copy_to_pages(rwdata->pages, rwdata->pgbase, buf, len);
+	rwdata->pgbase += len;
+	return len;
 }
 
 /**
@@ -640,21 +667,24 @@ static size_t _nfs_read_encrypted_pages(void *d, char *buf, size_t len)
  */
 
 size_t nfs_read_encrypted_pages(struct page **encrypted, size_t encryptedoff,
-    size_t count,
-    struct page **pages, size_t pgbase)
+	size_t count,
+	struct page **pages, size_t pgbase)
 {
-    struct rwdata rwdata[1];
-    rwdata->pages = pages;
-    rwdata->pgbase = pgbase;
-    return nfs_readwrite_encrypted_pages(encrypted, encryptedoff,
-	_nfs_read_encrypted_pages, rwdata, count);
+	struct rwdata rwdata[1];
+
+	rwdata->pages = pages;
+	rwdata->pgbase = pgbase;
+	return nfs_readwrite_encrypted_pages(encrypted, encryptedoff,
+		_nfs_read_encrypted_pages, rwdata, count);
 }
 
 static size_t _nfs_write_encrypted_pages(void *d, char *buf, size_t len)
 {
-    struct rwdata *rwdata = d;
-    _copy_from_pages(buf, rwdata->pages, rwdata->pgbase, len);
-    return len;
+	struct rwdata *rwdata = d;
+
+	_copy_from_pages(buf, rwdata->pages, rwdata->pgbase, len);
+	rwdata->pgbase += len;
+	return len;
 }
 
 /**
@@ -667,12 +697,13 @@ static size_t _nfs_write_encrypted_pages(void *d, char *buf, size_t len)
  */
 
 size_t nfs_write_encrypted_pages(struct page **encrypted, size_t encryptedoff,
-    size_t count,
-    struct page **pages, size_t pgbase)
+	size_t count,
+	struct page **pages, size_t pgbase)
 {
-    struct rwdata rwdata[1];
-    rwdata->pages = pages;
-    rwdata->pgbase = pgbase;
-    return nfs_readwrite_encrypted_pages(encrypted, encryptedoff,
-	_nfs_write_encrypted_pages, rwdata, count);
+	struct rwdata rwdata[1];
+
+	rwdata->pages = pages;
+	rwdata->pgbase = pgbase;
+	return nfs_readwrite_encrypted_pages(encrypted, encryptedoff,
+		_nfs_write_encrypted_pages, rwdata, count);
 }

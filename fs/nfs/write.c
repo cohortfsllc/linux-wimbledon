@@ -100,7 +100,7 @@ static struct nfs_write_data *nfs_writedata_alloc(struct nfs_pgio_header *hdr,
 		goto out;
 
 	if (nfs_pgarray_set(&data->pages, pagecount)) {
-		data->encryptedpages = 0;
+		memset(data->encrypted, 0, sizeof *data->encrypted);
 		data->header = hdr;
 		atomic_inc(&hdr->refcnt);
 	} else {
@@ -127,10 +127,7 @@ void nfs_writedata_release(struct nfs_write_data *wdata)
 	put_nfs_open_context(wdata->args.context);
 	if (wdata->pages.pagevec != wdata->pages.page_array)
 		kfree(wdata->pages.pagevec);
-	if (wdata->encryptedpages) {
-		nfs_free_encrypted_pages(wdata->encryptedpages, wdata->encryptednpages);
-		wdata->encryptedpages = 0;
-	}
+	nfs_free_encrypted_list(wdata->encrypted);
 	if (wdata == &write_header->rpc_data) {
 		wdata->header = NULL;
 		wdata = NULL;
@@ -1018,17 +1015,12 @@ static int nfs_write_rpcsetup(struct nfs_write_data *data,
 	/* pnfs_set_layoutcommit needs this */
 	data->mds_offset = data->args.offset;
 	if (server->client_side_key) {
-		if (data->encryptedpages) {
-printk("NFS: left-over encrypted pages? %lx\n", (long)data->encryptedpages);
-			nfs_free_encrypted_pages(data->encryptedpages, data->encryptednpages);
-		}
-		r = nfs_alloc_encrypted_pages(count, &data->encryptednpages,
-			&data->encryptedpages);
+		r = nfs_alloc_encrypted_pages(count, data->encrypted);
 		if (r) return r;
-		nfs_write_encrypted_pages(data->encryptedpages,
+		nfs_write_encrypted_pages(data->encrypted->pages,
 			0, count, data->pages.pagevec, req->wb_pgbase + offset);
 		// XXX encrypt here!
-		data->args.pages  = data->encryptedpages;
+		data->args.pages  = data->encrypted->pages;
 		data->args.pgbase = 0;
 	} else {
 		data->args.pgbase = req->wb_pgbase + offset;

@@ -1215,6 +1215,12 @@ struct nfs_page_array {
 	struct page		*page_array[NFS_PAGEVEC_SIZE];
 };
 
+struct encrypted_list {
+	struct page		**pages;
+	int			npages;
+	struct encrypted_list	*next;
+};
+
 struct nfs_read_data {
 	struct nfs_pgio_header	*header;
 	struct list_head	list;
@@ -1227,8 +1233,7 @@ struct nfs_read_data {
 	__u64			mds_offset;
 	struct nfs_page_array	pages;
 	struct nfs_client	*ds_clp;	/* pNFS data server */
-	struct page **		encryptedpages;
-	int			encryptednpages;
+	struct encrypted_list	encrypted[1];
 };
 
 /* used as flag bits in nfs_pgio_header */
@@ -1281,8 +1286,7 @@ struct nfs_write_data {
 	__u64			mds_offset;	/* Filelayout dense stripe */
 	struct nfs_page_array	pages;
 	struct nfs_client	*ds_clp;	/* pNFS data server */
-	struct page **		encryptedpages;
-	int			encryptednpages;
+	struct encrypted_list	encrypted[1];
 };
 
 struct nfs_write_header {
