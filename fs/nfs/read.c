@@ -64,6 +64,7 @@ static struct nfs_read_data *nfs_readdata_alloc(struct nfs_pgio_header *hdr,
 		goto out;
 
 	if (nfs_pgarray_set(&data->pages, pagecount)) {
+		memset(data->encrypted, 0, sizeof *data->encrypted);
 		data->header = hdr;
 		atomic_inc(&hdr->refcnt);
 	} else {
@@ -91,6 +92,7 @@ void nfs_readdata_release(struct nfs_read_data *rdata)
 	put_nfs_open_context(rdata->args.context);
 	if (rdata->pages.pagevec != rdata->pages.page_array)
 		kfree(rdata->pages.pagevec);
+	nfs_free_encrypted_list(rdata->encrypted);
 	if (rdata == &read_header->rpc_data) {
 		rdata->header = NULL;
 		rdata = NULL;
@@ -247,15 +249,25 @@ EXPORT_SYMBOL_GPL(nfs_initiate_read);
 /*
  * Set up the NFS read request struct
  */
-static void nfs_read_rpcsetup(struct nfs_read_data *data,
+static int nfs_read_rpcsetup(struct nfs_read_data *data,
 		unsigned int count, unsigned int offset)
 {
 	struct nfs_page *req = data->header->req;
+	struct nfs_server *server = NFS_SERVER(data->header->inode);
+	int r;
 
 	data->args.fh     = NFS_FH(data->header->inode);
 	data->args.offset = req_offset(req) + offset;
-	data->args.pgbase = req->wb_pgbase + offset;
-	data->args.pages  = data->pages.pagevec;
+	if (server->client_side_key) {
+		r = nfs_alloc_encrypted_pages(count, data->encrypted);
+		if (r) return r;
+		data->rpgbase = req->wb_pgbase + offset;
+		data->args.pages  = data->encrypted->pages;
+		data->args.pgbase = 0;
+	} else {
+		data->args.pgbase = req->wb_pgbase + offset;
+		data->args.pages  = data->pages.pagevec;
+	}
 	data->args.count  = count;
 	data->args.context = get_nfs_open_context(req->wb_context);
 	data->args.lock_context = req->wb_lock_context;
@@ -264,6 +276,7 @@ static void nfs_read_rpcsetup(struct nfs_read_data *data,
 	data->res.count   = count;
 	data->res.eof     = 0;
 	nfs_fattr_init(&data->fattr);
+	return 0;
 }
 
 static int nfs_do_read(struct nfs_read_data *data,
@@ -345,6 +358,7 @@ static int nfs_pagein_multi(struct nfs_pageio_descriptor *desc,
 	struct nfs_read_data *data;
 	size_t rsize = desc->pg_bsize, nbytes;
 	unsigned int offset;
+	int r;
 
 	offset = 0;
 	nbytes = desc->pg_count;
@@ -357,7 +371,11 @@ static int nfs_pagein_multi(struct nfs_pageio_descriptor *desc,
 			return -ENOMEM;
 		}
 		data->pages.pagevec[0] = page;
-		nfs_read_rpcsetup(data, len, offset);
+		r = nfs_read_rpcsetup(data, len, offset);
+		if (r) {
+			nfs_pagein_error(desc, hdr);
+			return r;
+		}
 		list_add(&data->list, &hdr->rpc_list);
 		nbytes -= len;
 		offset += len;
@@ -376,6 +394,7 @@ static int nfs_pagein_one(struct nfs_pageio_descriptor *desc,
 	struct page		**pages;
 	struct nfs_read_data    *data;
 	struct list_head *head = &desc->pg_list;
+	int r;
 
 	data = nfs_readdata_alloc(hdr, nfs_page_array_len(desc->pg_base,
 							  desc->pg_count));
@@ -392,7 +411,11 @@ static int nfs_pagein_one(struct nfs_pageio_descriptor *desc,
 		*pages++ = req->wb_page;
 	}
 
-	nfs_read_rpcsetup(data, desc->pg_count, 0);
+	r = nfs_read_rpcsetup(data, desc->pg_count, 0);
+	if (r) {
+		nfs_pagein_error(desc, hdr);
+		return r;
+	}
 	list_add(&data->list, &hdr->rpc_list);
 	desc->pg_rpc_callops = &nfs_read_common_ops;
 	return 0;
@@ -484,13 +507,26 @@ static void nfs_readpage_result_common(struct rpc_task *task, void *calldata)
 {
 	struct nfs_read_data *data = calldata;
 	struct nfs_pgio_header *hdr = data->header;
+	struct nfs_server *server = NFS_SERVER(data->header->inode);
 
 	/* Note the only returns of nfs_readpage_result are 0 and -EAGAIN */
 	if (nfs_readpage_result(task, data) != 0)
 		return;
-	if (task->tk_status < 0)
+	if (task->tk_status < 0) {
 		nfs_set_pgio_error(hdr, task->tk_status, data->args.offset);
-	else if (data->res.eof) {
+		return;
+	}
+
+	if (server->client_side_key) {
+		// XXX decrypt here!
+		nfs_read_encrypted_pages(data->encrypted->pages,
+			data->args.pgbase,
+			data->res.count,	/* XXX vetted?? */
+			data->pages.pagevec,
+			data->rpgbase + data->args.pgbase);
+	}
+
+	if (data->res.eof) {
 		loff_t bound;
 
 		bound = data->args.offset + data->res.count;

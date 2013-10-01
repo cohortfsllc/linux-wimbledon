@@ -1234,6 +1234,7 @@ struct nfs_read_data {
 	struct nfs_page_array	pages;
 	struct nfs_client	*ds_clp;	/* pNFS data server */
 	struct encrypted_list	encrypted[1];
+	size_t			rpgbase;
 };
 
 /* used as flag bits in nfs_pgio_header */
