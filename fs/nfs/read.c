@@ -262,6 +262,7 @@ static int nfs_read_rpcsetup(struct nfs_read_data *data,
 		r = nfs_alloc_encrypted_pages(count, data->encrypted);
 		if (r) return r;
 		data->rpgbase = req->wb_pgbase + offset;
+		data->rpgoffset = data->args.offset;
 		data->args.pages  = data->encrypted->pages;
 		data->args.pgbase = 0;
 	} else {
@@ -519,6 +520,8 @@ static void nfs_readpage_result_common(struct rpc_task *task, void *calldata)
 
 	if (server->client_side_key) {
 		// XXX decrypt here!
+		nfs_decrypt_pages_here(server, data->encrypted->pages,
+			data->res.count, data->rpgoffset);
 		nfs_read_encrypted_pages(data->encrypted->pages,
 			data->args.pgbase,
 			data->res.count,	/* XXX vetted?? */

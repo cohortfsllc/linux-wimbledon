@@ -20,6 +20,7 @@
 #include <linux/nfs_fs.h>
 #include <linux/nfs_mount.h>
 #include <linux/export.h>
+#include <linux/crypto.h>
 
 #include "internal.h"
 #include "pnfs.h"
@@ -706,4 +707,60 @@ size_t nfs_write_encrypted_pages(struct page **encrypted, size_t encryptedoff,
 	rwdata->pgbase = pgbase;
 	return nfs_readwrite_encrypted_pages(encrypted, encryptedoff,
 		_nfs_write_encrypted_pages, rwdata, count);
+}
+
+int nfs_decrypt_pages_here(struct nfs_server *server,
+	struct page **pages, __u32 count, loff_t offset)
+{
+	struct crypto_blkcipher *tfm = 0;
+	struct scatterlist *sg = 0;
+	int ret, i, npages;
+	__u32 len, buflen;
+
+	if (server->client_side_keylen == 1)	// XXX for testing data paths only
+		return 0;
+	npages = DIV_ROUND_UP(count, PAGE_SIZE);
+#define ALG "ctr(aes)"
+	tfm = crypto_alloc_blkcipher(ALG, 0, CRYPTO_ALG_ASYNC);
+	if (IS_ERR(tfm)) {
+printk(KERN_ERR "nfs_decrypt_pages_here: crypto_alloc_blkcipher failed! %lx\n", (long) tfm);
+		ret = PTR_ERR(tfm);
+		tfm = 0;
+		goto err;
+	}
+	ret = crypto_blkcipher_setkey(tfm,
+		server->client_side_key,
+		server->client_side_keylen);
+	if (ret) {
+printk(KERN_ERR "nfs_decrypt_pages_here: crypto_blkcipher_setkey failed! %d\n", ret);
+		goto err;
+	}
+	{
+		int ivsize = crypto_blkcipher_ivsize(tfm);
+		u8 local_iv[ivsize];
+		struct blkcipher_desc desc[1] = {{ .info = local_iv, .tfm = tfm }};
+		memset(local_iv, 0, ivsize);
+		((__be64 *)(local_iv+ivsize))[-1] = cpu_to_be64(offset);
+		sg = kzalloc(sizeof *sg * npages, GFP_NOFS);
+		sg_init_table(sg, npages);
+		len = count;
+		for (i = 0; i < npages; ++i) {
+			buflen = len;
+			if (buflen > PAGE_SIZE) buflen = PAGE_SIZE;
+			sg_set_page(sg+i, pages[i], buflen, 0);
+			len -= buflen;
+		}
+		// XXX combine this copy with...
+		ret = crypto_blkcipher_encrypt(desc, sg, sg, count);
+		if (ret) {
+printk(KERN_ERR "nfs_decrypt_pages_here: crypto_blkcipher_encrypt failed! %d\n", ret);
+			goto err;
+		}
+	}
+err:
+	if (sg)
+		kfree(sg);
+	if (tfm)
+		crypto_free_blkcipher(tfm);
+	return ret;
 }
