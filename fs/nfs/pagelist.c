@@ -713,8 +713,8 @@ int nfs_decrypt_pages_here(struct nfs_server *server, struct page **pages,
 	__u32 eoff, __u32 count, loff_t offset)
 {
 	struct crypto_blkcipher *tfm = 0;
-	struct scatterlist *sg = 0;
-	int ret, i, npages;
+	struct scatterlist *sg = 0, *sp;
+	int ret, i, npages, nsegs;
 	__u32 len, buflen, off;
 
 	off = eoff & (PAGE_SIZE-1);
@@ -737,25 +737,40 @@ printk(KERN_ERR "nfs_decrypt_pages_here: crypto_blkcipher_setkey failed! %d\n", 
 		goto err;
 	}
 	{
+		int cboff;
 		int ivsize = crypto_blkcipher_ivsize(tfm);
-		u8 local_iv[ivsize];
+		u8 local_iv[ivsize], cbdummy[ivsize];
 		struct blkcipher_desc desc[1] = {{ .info = local_iv, .tfm = tfm }};
 		memset(local_iv, 0, ivsize);
-		((__be64 *)(local_iv+ivsize))[-1] = cpu_to_be64(offset);
-		sg = kzalloc(sizeof *sg * npages, GFP_NOFS);
-		sg_init_table(sg, npages);
+		cboff = offset % ivsize;
+		((__be64 *)(local_iv+ivsize))[-1] = cpu_to_be64(1+offset/ivsize);
+
+		nsegs = npages;
+		if (cboff)
+			++ nsegs;
+		sg = kzalloc(sizeof *sg * nsegs, GFP_NOFS);
+		sg_init_table(sg, nsegs);
+		sp = sg;
+		if (cboff) {	/* only if O_DIRECT? */
+			sg_set_buf(sp, cbdummy, cboff);
+			++sp;
+		}
 		len = count + off;
+		i = 0;
 		for (i = 0; i < npages; ++i) {
 			buflen = len;
 			if (buflen > PAGE_SIZE) buflen = PAGE_SIZE;
-			sg_set_page(sg+i, pages[i], buflen-off, off);
+			sg_set_page(sp, pages[i], buflen-off, off);
+			++sp;
 			off = 0;
 			len -= buflen;
 		}
 		// XXX combine this copy with...
-		ret = crypto_blkcipher_encrypt(desc, sg, sg, count);
+printk(KERN_ERR "NFS: before crypt: off=%x iv=%*phD\n", (int) offset, ivsize, local_iv); // DDD
+		ret = crypto_blkcipher_encrypt_iv(desc, sg, sg, count + cboff);
+printk(KERN_ERR "NFS:  after crypt: off=%x iv=%*phD\n", (int) offset+count, ivsize, local_iv); // DDD
 		if (ret) {
-printk(KERN_ERR "nfs_decrypt_pages_here: crypto_blkcipher_encrypt failed! %d\n", ret);
+printk(KERN_ERR "nfs_decrypt_pages_here: crypto_blkcipher_encrypt_iv failed! %d\n", ret);
 			goto err;
 		}
 	}
