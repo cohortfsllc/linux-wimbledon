@@ -520,8 +520,8 @@ static void nfs_readpage_result_common(struct rpc_task *task, void *calldata)
 
 	if (server->client_side_key) {
 		// XXX decrypt here!
-printk(KERN_ERR "NFS: nfs_readpage_result_common: off=%x count=%d epgbase=%d\n",
-(int) data->args.offset, data->res.count, data->args.pgbase);
+// printk(KERN_ERR "NFS: nfs_readpage_result_common: off=%x count=%d epgbase=%d\n",
+// (int) data->args.offset, data->res.count, data->args.pgbase);
 		nfs_decrypt_pages_here(server, data->encrypted->pages,
 			data->args.pgbase,
 			data->res.count,

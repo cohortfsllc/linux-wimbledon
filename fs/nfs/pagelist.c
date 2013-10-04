@@ -778,9 +778,9 @@ printk(KERN_ERR "nfs_decrypt_pages_here: crypto_blkcipher_setkey failed! %d\n", 
 			len -= buflen;
 		}
 		// XXX combine this copy with...
-printk(KERN_ERR "NFS: before crypt: iv=%*phD\n", ivsize, local_iv); // DDD
+// printk(KERN_ERR "NFS: before crypt: iv=%*phD\n", ivsize, local_iv); // DDD
 		ret = crypto_blkcipher_encrypt_iv(desc, sg, sg, count + cboff);
-printk(KERN_ERR "NFS:  after crypt: iv=%*phD\n", ivsize, local_iv); // DDD
+// printk(KERN_ERR "NFS:  after crypt: iv=%*phD\n", ivsize, local_iv); // DDD
 		if (ret) {
 printk(KERN_ERR "nfs_decrypt_pages_here: crypto_blkcipher_encrypt_iv failed! %d\n", ret);
 			goto err;
