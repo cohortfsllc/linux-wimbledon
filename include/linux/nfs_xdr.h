@@ -1289,7 +1289,6 @@ struct nfs_write_data {
 	struct nfs_page_array	pages;
 	struct nfs_client	*ds_clp;	/* pNFS data server */
 	struct encrypted_list	encrypted[1];
-	loff_t			wpgoffset;
 };
 
 struct nfs_write_header {

@@ -1020,7 +1020,7 @@ static int nfs_write_rpcsetup(struct nfs_write_data *data,
 		nfs_write_encrypted_pages(data->encrypted->pages,
 			0, count, data->pages.pagevec, req->wb_pgbase + offset);
 		// encrypt pages
-		nfs_decrypt_pages_here(server, data->encrypted->pages,
+		nfs_decrypt_pages_here(server, data->encrypted->pages, 0,
 			count, data->args.offset);
 		data->args.pages  = data->encrypted->pages;
 		data->args.pgbase = 0;

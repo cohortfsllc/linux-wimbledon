@@ -244,7 +244,7 @@ size_t nfs_write_encrypted_pages(struct page **encrypted, size_t encryptedoff,
     size_t count,
     struct page **pages, size_t pgbase);
 int nfs_decrypt_pages_here(struct nfs_server *server,
-        struct page **pages, __u32 count, loff_t offset);
+        struct page **pages, __u32 eoff, __u32 count, loff_t offset);
 
 static inline void nfs_iocounter_init(struct nfs_io_counter *c)
 {

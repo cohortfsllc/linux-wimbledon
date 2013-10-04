@@ -521,7 +521,10 @@ static void nfs_readpage_result_common(struct rpc_task *task, void *calldata)
 	if (server->client_side_key) {
 		// XXX decrypt here!
 		nfs_decrypt_pages_here(server, data->encrypted->pages,
-			data->res.count, data->rpgoffset);
+			data->args.offset,
+			data->res.count,
+			data->rpgoffset + data->args.offset);
+		// XXX recopies from 0 always, could do better.
 		nfs_read_encrypted_pages(data->encrypted->pages,
 			data->args.pgbase,
 			data->res.count,	/* XXX vetted?? */

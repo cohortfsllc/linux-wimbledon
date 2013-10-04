@@ -709,17 +709,18 @@ size_t nfs_write_encrypted_pages(struct page **encrypted, size_t encryptedoff,
 		_nfs_write_encrypted_pages, rwdata, count);
 }
 
-int nfs_decrypt_pages_here(struct nfs_server *server,
-	struct page **pages, __u32 count, loff_t offset)
+int nfs_decrypt_pages_here(struct nfs_server *server, struct page **pages,
+	__u32 eoff, __u32 count, loff_t offset)
 {
 	struct crypto_blkcipher *tfm = 0;
 	struct scatterlist *sg = 0;
 	int ret, i, npages;
-	__u32 len, buflen;
+	__u32 len, buflen, off;
 
+	off = eoff & (PAGE_SIZE-1);
 	if (server->client_side_keylen == 1)	// XXX for testing data paths only
 		return 0;
-	npages = DIV_ROUND_UP(count, PAGE_SIZE);
+	npages = DIV_ROUND_UP(count + off, PAGE_SIZE);
 #define ALG "ctr(aes)"
 	tfm = crypto_alloc_blkcipher(ALG, 0, CRYPTO_ALG_ASYNC);
 	if (IS_ERR(tfm)) {
@@ -743,11 +744,12 @@ printk(KERN_ERR "nfs_decrypt_pages_here: crypto_blkcipher_setkey failed! %d\n", 
 		((__be64 *)(local_iv+ivsize))[-1] = cpu_to_be64(offset);
 		sg = kzalloc(sizeof *sg * npages, GFP_NOFS);
 		sg_init_table(sg, npages);
-		len = count;
+		len = count + off;
 		for (i = 0; i < npages; ++i) {
 			buflen = len;
 			if (buflen > PAGE_SIZE) buflen = PAGE_SIZE;
-			sg_set_page(sg+i, pages[i], buflen, 0);
+			sg_set_page(sg+i, pages[i], buflen-off, off);
+			off = 0;
 			len -= buflen;
 		}
 		// XXX combine this copy with...
