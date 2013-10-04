@@ -262,7 +262,7 @@ static int nfs_read_rpcsetup(struct nfs_read_data *data,
 		r = nfs_alloc_encrypted_pages(count, data->encrypted);
 		if (r) return r;
 		data->rpgbase = req->wb_pgbase + offset;
-		data->rpgoffset = data->args.offset;
+		data->rpgoffset = data->args.offset;	// XXX not needed?
 		data->args.pages  = data->encrypted->pages;
 		data->args.pgbase = 0;
 	} else {
@@ -520,11 +520,12 @@ static void nfs_readpage_result_common(struct rpc_task *task, void *calldata)
 
 	if (server->client_side_key) {
 		// XXX decrypt here!
+printk(KERN_ERR "NFS: nfs_readpage_result_common: off=%x count=%d epgbase=%d\n",
+(int) data->args.offset, data->res.count, data->args.pgbase);
 		nfs_decrypt_pages_here(server, data->encrypted->pages,
-			data->args.offset,
+			data->args.pgbase,
 			data->res.count,
-			data->rpgoffset + data->args.offset);
-		// XXX recopies from 0 always, could do better.
+			data->args.offset);
 		nfs_read_encrypted_pages(data->encrypted->pages,
 			data->args.pgbase,
 			data->res.count,	/* XXX vetted?? */

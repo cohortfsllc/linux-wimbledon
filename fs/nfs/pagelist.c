@@ -709,6 +709,17 @@ size_t nfs_write_encrypted_pages(struct page **encrypted, size_t encryptedoff,
 		_nfs_write_encrypted_pages, rwdata, count);
 }
 
+/**
+ * nfs_decrypt_pages_here - encrypt/decrypt pages in place.
+ * @server: nfs_server with client_key, client_keylen
+ * @pages: array of encrypted pages
+ * @eoff: byte offset for start of data in pages.
+ * @count: number of bytes to munge
+ * @offset: file offset this data came from/goes to
+ *
+ * Returns 0 on success, else -error.
+ */
+
 int nfs_decrypt_pages_here(struct nfs_server *server, struct page **pages,
 	__u32 eoff, __u32 count, loff_t offset)
 {
@@ -717,6 +728,7 @@ int nfs_decrypt_pages_here(struct nfs_server *server, struct page **pages,
 	int ret, i, npages, nsegs;
 	__u32 len, buflen, off;
 
+	pages += (eoff / PAGE_SIZE);
 	off = eoff & (PAGE_SIZE-1);
 	if (server->client_side_keylen == 1)	// XXX for testing data paths only
 		return 0;
@@ -766,9 +778,9 @@ printk(KERN_ERR "nfs_decrypt_pages_here: crypto_blkcipher_setkey failed! %d\n", 
 			len -= buflen;
 		}
 		// XXX combine this copy with...
-printk(KERN_ERR "NFS: before crypt: off=%x iv=%*phD\n", (int) offset, ivsize, local_iv); // DDD
+printk(KERN_ERR "NFS: before crypt: iv=%*phD\n", ivsize, local_iv); // DDD
 		ret = crypto_blkcipher_encrypt_iv(desc, sg, sg, count + cboff);
-printk(KERN_ERR "NFS:  after crypt: off=%x iv=%*phD\n", (int) offset+count, ivsize, local_iv); // DDD
+printk(KERN_ERR "NFS:  after crypt: iv=%*phD\n", ivsize, local_iv); // DDD
 		if (ret) {
 printk(KERN_ERR "nfs_decrypt_pages_here: crypto_blkcipher_encrypt_iv failed! %d\n", ret);
 			goto err;
