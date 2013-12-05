@@ -35,7 +35,7 @@ encrypt_filename(char *c, unsigned char *k, int kl)
 	}
 	l = strlen(c);
 	/* NOTE: bitrev(crc32_le != crc32_be( */
-	sum = le32_to_cpu(~crc32_le(~0, c, l));
+	sum = ~crc32_le(~0, c, l);
 	l2 = l + 4;
 	work = kmalloc(l2, GFP_KERNEL);
 	if (!work) {
@@ -125,7 +125,7 @@ decrypt_filename(char *c, unsigned char *k, int kl)
 		ret = ERR_PTR(rc);
 		goto Done;
 	}
-	sum1 = le32_to_cpu(~crc32_le(~0, rp, outlen-4));
+	sum1 = ~crc32_le(~0, rp, outlen-4);
 	sum2 = (((unsigned int)work[0])<<24)
 		| (((unsigned int)work[1])<<16)
 		| (((unsigned int)work[2])<<8)
