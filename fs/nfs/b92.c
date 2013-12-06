@@ -76,13 +76,13 @@ encode_pattern(int i)
 }
 
 char *
-b92_encode(unsigned char *in, int len)
+b92_encode(const char *in, int len)
 {
 	char *tape;
 	char *tp;
 	int t, j, x;
 	unsigned int a;
-	unsigned char *ip;
+	const unsigned char *ip;
 	int outlen = i2l(len)+1;
 	char *result;
 	char *rp;
@@ -94,7 +94,7 @@ b92_encode(unsigned char *in, int len)
 	rp = result;
 	x = 0 ;
 	a = 0;
-	ip = in;
+	ip = (const unsigned char *) in;
 	while ((t = *tp++)) {
 		if (t == 'i') {
 			j = *ip++;
@@ -118,14 +118,14 @@ b92_encode(unsigned char *in, int len)
 	return result;
 }
 
-char * b92_decode(char *in, int *outlen)
+char * b92_decode(const char *in, int *outlen)
 {
 	int l = strlen(in);
 	int i = l2i(l);
 	char *tape;
 	int tlen, tx, t, j;
 	unsigned int a = 0;
-	char *ip = in + l;
+	const char *ip = in + l;
 	char *rp;
 	char *result;
 

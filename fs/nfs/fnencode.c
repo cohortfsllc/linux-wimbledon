@@ -9,7 +9,7 @@
 #define ALG "ctr(aes)"
 
 char *
-encrypt_filename(char *c, unsigned char *k, int kl)
+encrypt_filename(const char *c, const unsigned char *k, int kl)
 {
 	struct crypto_blkcipher *tfm = 0;
 	struct scatterlist sg[1];
@@ -72,7 +72,7 @@ Failed:
 EXPORT_SYMBOL(encrypt_filename);
 
 char *
-decrypt_filename(char *c, unsigned char *k, int kl)
+decrypt_filename(const char *c, const unsigned char *k, int kl)
 {
 	struct crypto_blkcipher *tfm = 0;
 	struct scatterlist sgi[1], sgo[1];
