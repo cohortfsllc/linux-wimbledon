@@ -342,6 +342,7 @@ struct nfs_openargs {
 		fmode_t		delegation_type;	/* CLAIM_PREVIOUS */
 	} u;
 	const struct qstr *	name;
+	struct qstr 		encrypted_name;
 	const struct nfs_server *server;	 /* Needed for ID mapping */
 	const u32 *		bitmask;
 	const u32 *		open_bitmap;
@@ -557,6 +558,7 @@ struct nfs_removeargs {
 	struct nfs4_sequence_args	seq_args;
 	const struct nfs_fh	*fh;
 	struct qstr		name;
+	struct qstr		encrypted_name;
 };
 
 struct nfs_removeres {
@@ -575,6 +577,8 @@ struct nfs_renameargs {
 	const struct nfs_fh		*new_dir;
 	const struct qstr		*old_name;
 	const struct qstr		*new_name;
+	struct qstr		encrypted_old_name;
+	struct qstr		encrypted_new_name;
 };
 
 struct nfs_renameres {
@@ -858,6 +862,7 @@ struct nfs4_create_arg {
 		} device;    /* NF4BLK, NF4CHR */
 	} u;
 	const struct qstr *		name;
+	struct qstr			encrypted_name;
 	const struct nfs_server *	server;
 	const struct iattr *		attrs;
 	const struct nfs_fh *		dir_fh;
@@ -900,6 +905,7 @@ struct nfs4_link_arg {
 	const struct nfs_fh *		fh;
 	const struct nfs_fh *		dir_fh;
 	const struct qstr *		name;
+	struct qstr			encrypted_name;
 	const u32 *			bitmask;
 };
 
@@ -916,6 +922,7 @@ struct nfs4_lookup_arg {
 	struct nfs4_sequence_args	seq_args;
 	const struct nfs_fh *		dir_fh;
 	const struct qstr *		name;
+	struct qstr			encrypted_name;
 	const u32 *			bitmask;
 };
 
@@ -1055,6 +1062,7 @@ struct nfs4_fs_locations_arg {
 	struct nfs4_sequence_args	seq_args;
 	const struct nfs_fh *dir_fh;
 	const struct qstr *name;
+	struct qstr encrypted_name;
 	struct page *page;
 	const u32 *bitmask;
 };
@@ -1078,6 +1086,7 @@ struct nfs4_secinfo_arg {
 	struct nfs4_sequence_args	seq_args;
 	const struct nfs_fh		*dir_fh;
 	const struct qstr		*name;
+	struct qstr			encrypted_name;
 };
 
 struct nfs4_secinfo_res {

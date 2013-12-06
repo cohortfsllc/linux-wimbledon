@@ -41,6 +41,7 @@
 #include "iostat.h"
 #include "internal.h"
 #include "fscache.h"
+#include "fnencode.h"
 
 /* #define NFS_DEBUG_VERBOSE 1 */
 
@@ -197,28 +198,39 @@ void nfs_readdir_clear_array(struct page *page)
 }
 
 /*
+ * Copy (and perhaps decrypt) filename.
  * the caller is responsible for freeing qstr.name
- * when called by nfs_readdir_add_to_array, the strings will be freed in
+ * Usually the strings will be stolen by nfs_readdir_add_to_array
+ * and then freed in
  * nfs_clear_readdir_array()
  */
 static
-int nfs_readdir_make_qstr(struct qstr *string, const char *name, unsigned int len)
+int nfs_readdir_make_qstr(struct nfs_server *server, struct qstr *string,
+	const char *name, unsigned int len)
 {
+	char *cp;
+
+	if (server->client_side_key) {
+		cp = decrypt_filename(name,
+			server->client_side_key,
+			server->client_side_keylen);
+		if (IS_ERR(cp)) {
+			return PTR_ERR(cp);
+		}
+		len = strlen(cp);
+	} else {
+		cp = kmemdup(name, len, GFP_KERNEL);
+		if (!cp)
+			return -ENOMEM;
+	}
+	string->name = cp;
 	string->len = len;
-	string->name = kmemdup(name, len, GFP_KERNEL);
-	if (string->name == NULL)
-		return -ENOMEM;
-	/*
-	 * Avoid a kmemleak false positive. The pointer to the name is stored
-	 * in a page cache page which kmemleak does not scan.
-	 */
-	kmemleak_not_leak(string->name);
 	string->hash = full_name_hash(name, len);
 	return 0;
 }
 
 static
-int nfs_readdir_add_to_array(struct nfs_entry *entry, struct page *page)
+int nfs_readdir_add_to_array(struct nfs_entry *entry, struct page *page, struct qstr *name)
 {
 	struct nfs_cache_array *array = nfs_readdir_get_array(page);
 	struct nfs_cache_array_entry *cache_entry;
@@ -237,13 +249,19 @@ int nfs_readdir_add_to_array(struct nfs_entry *entry, struct page *page)
 	cache_entry->cookie = entry->prev_cookie;
 	cache_entry->ino = entry->ino;
 	cache_entry->d_type = entry->d_type;
-	ret = nfs_readdir_make_qstr(&cache_entry->string, entry->name, entry->len);
-	if (ret)
-		goto out;
+	/* steal the name */
+	cache_entry->string = *name;
+	name->name = 0;		/* mark it consumed */
+	/*
+	 * Avoid a kmemleak false positive. The pointer to the name is stored
+	 * in a page cache page which kmemleak does not scan.
+	 */
+	kmemleak_not_leak(cache_entry->string.name);
 	array->last_cookie = entry->cookie;
 	array->size++;
 	if (entry->eof != 0)
 		array->eof_index = array->size;
+	ret = 0;
 out:
 	nfs_readdir_release_array(page);
 	return ret;
@@ -428,23 +446,21 @@ void nfs_advise_use_readdirplus(struct inode *dir)
 }
 
 static
-void nfs_prime_dcache(struct dentry *parent, struct nfs_entry *entry)
+void nfs_prime_dcache(struct dentry *parent, struct nfs_entry *entry, struct qstr *filename)
 {
-	struct qstr filename = QSTR_INIT(entry->name, entry->len);
 	struct dentry *dentry;
 	struct dentry *alias;
 	struct inode *dir = parent->d_inode;
 	struct inode *inode;
 
-	if (filename.name[0] == '.') {
-		if (filename.len == 1)
+	if (filename->name[0] == '.') {
+		if (filename->len == 1)
 			return;
-		if (filename.len == 2 && filename.name[1] == '.')
+		if (filename->len == 2 && filename->name[1] == '.')
 			return;
 	}
-	filename.hash = full_name_hash(filename.name, filename.len);
 
-	dentry = d_lookup(parent, &filename);
+	dentry = d_lookup(parent, filename);
 	if (dentry != NULL) {
 		if (nfs_same_file(dentry, entry)) {
 			nfs_refresh_inode(dentry->d_inode, entry->fattr);
@@ -456,7 +472,7 @@ void nfs_prime_dcache(struct dentry *parent, struct nfs_entry *entry)
 		}
 	}
 
-	dentry = d_alloc(parent, &filename);
+	dentry = d_alloc(parent, filename);
 	if (dentry == NULL)
 		return;
 
@@ -488,6 +504,9 @@ int nfs_readdir_page_filler(nfs_readdir_descriptor_t *desc, struct nfs_entry *en
 	struct nfs_cache_array *array;
 	unsigned int count = 0;
 	int status;
+	struct qstr tempname[1];
+	struct inode *inode = file_inode(desc->file);
+	struct nfs_server *server = NFS_SERVER(inode);
 
 	scratch = alloc_page(GFP_KERNEL);
 	if (scratch == NULL)
@@ -495,6 +514,7 @@ int nfs_readdir_page_filler(nfs_readdir_descriptor_t *desc, struct nfs_entry *en
 
 	xdr_init_decode_pages(&stream, &buf, xdr_pages, buflen);
 	xdr_set_scratch_buffer(&stream, page_address(scratch), PAGE_SIZE);
+	tempname->name = 0;
 
 	do {
 		status = xdr_decode(desc, entry, &stream);
@@ -503,13 +523,17 @@ int nfs_readdir_page_filler(nfs_readdir_descriptor_t *desc, struct nfs_entry *en
 				status = 0;
 			break;
 		}
+		kfree(tempname->name);
+		tempname->name = 0;
+		status = nfs_readdir_make_qstr(server, tempname, entry->name, entry->len);
+		if (status != 0) break;
 
 		count++;
 
 		if (desc->plus != 0)
-			nfs_prime_dcache(desc->file->f_path.dentry, entry);
+			nfs_prime_dcache(desc->file->f_path.dentry, entry, tempname);
 
-		status = nfs_readdir_add_to_array(entry, page);
+		status = nfs_readdir_add_to_array(entry, page, tempname);
 		if (status != 0)
 			break;
 	} while (!entry->eof);
@@ -524,6 +548,7 @@ int nfs_readdir_page_filler(nfs_readdir_descriptor_t *desc, struct nfs_entry *en
 			status = PTR_ERR(array);
 	}
 
+	kfree(tempname->name);
 	put_page(scratch);
 	return status;
 }
@@ -536,16 +561,9 @@ void nfs_readdir_free_pagearray(struct page **pages, unsigned int npages)
 		put_page(pages[i]);
 }
 
-static
-void nfs_readdir_free_large_page(void *ptr, struct page **pages,
-		unsigned int npages)
-{
-	nfs_readdir_free_pagearray(pages, npages);
-}
-
 /*
  * nfs_readdir_large_page will allocate pages that must be freed with a call
- * to nfs_readdir_free_large_page
+ * to nfs_readdir_free_pagearray
  */
 static
 int nfs_readdir_large_page(struct page **pages, unsigned int npages)
@@ -569,7 +587,6 @@ static
 int nfs_readdir_xdr_to_array(nfs_readdir_descriptor_t *desc, struct page *page, struct inode *inode)
 {
 	struct page *pages[NFS_MAX_READDIR_PAGES];
-	void *pages_ptr = NULL;
 	struct nfs_entry entry;
 	struct file	*file = desc->file;
 	struct nfs_cache_array *array;
@@ -611,7 +628,7 @@ int nfs_readdir_xdr_to_array(nfs_readdir_descriptor_t *desc, struct page *page, 
 		}
 	} while (array->eof_index < 0);
 
-	nfs_readdir_free_large_page(pages_ptr, pages, array_size);
+	nfs_readdir_free_pagearray(pages, array_size);
 out_release_array:
 	nfs_readdir_release_array(page);
 out:

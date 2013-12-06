@@ -1127,6 +1127,8 @@ static void encode_commit(struct xdr_stream *xdr, const struct nfs_commitargs *a
 
 static void encode_create(struct xdr_stream *xdr, const struct nfs4_create_arg *create, struct compound_hdr *hdr)
 {
+	const struct qstr *name = create->encrypted_name.len
+		? &create->encrypted_name : create->name;
 	__be32 *p;
 
 	encode_op_hdr(xdr, OP_CREATE, decode_create_maxsz, hdr);
@@ -1149,7 +1151,7 @@ static void encode_create(struct xdr_stream *xdr, const struct nfs4_create_arg *
 		break;
 	}
 
-	encode_string(xdr, create->name->len, create->name->name);
+	encode_string(xdr, name->len, create->name->name);
 	encode_attrs(xdr, create->attrs, create->server);
 }
 
@@ -1481,18 +1483,19 @@ static inline void encode_claim_delegate_cur_fh(struct xdr_stream *xdr, const nf
 
 static void encode_open(struct xdr_stream *xdr, const struct nfs_openargs *arg, struct compound_hdr *hdr)
 {
+	const struct qstr *name = arg->encrypted_name.len ? &arg->encrypted_name : arg->name;
 	encode_op_hdr(xdr, OP_OPEN, decode_open_maxsz, hdr);
 	encode_openhdr(xdr, arg);
 	encode_opentype(xdr, arg);
 	switch (arg->claim) {
 	case NFS4_OPEN_CLAIM_NULL:
-		encode_claim_null(xdr, arg->name);
+		encode_claim_null(xdr, name);
 		break;
 	case NFS4_OPEN_CLAIM_PREVIOUS:
 		encode_claim_previous(xdr, arg->u.delegation_type);
 		break;
 	case NFS4_OPEN_CLAIM_DELEGATE_CUR:
-		encode_claim_delegate_cur(xdr, arg->name, &arg->u.delegation);
+		encode_claim_delegate_cur(xdr, name, &arg->u.delegation);
 		break;
 	case NFS4_OPEN_CLAIM_FH:
 		encode_claim_fh(xdr);
@@ -2065,6 +2068,8 @@ static void nfs4_xdr_enc_access(struct rpc_rqst *req, struct xdr_stream *xdr,
 static void nfs4_xdr_enc_lookup(struct rpc_rqst *req, struct xdr_stream *xdr,
 				const struct nfs4_lookup_arg *args)
 {
+	const struct qstr *name = args->encrypted_name.len
+		? &args->encrypted_name : args->name;
 	struct compound_hdr hdr = {
 		.minorversion = nfs4_xdr_minorversion(&args->seq_args),
 	};
@@ -2072,7 +2077,7 @@ static void nfs4_xdr_enc_lookup(struct rpc_rqst *req, struct xdr_stream *xdr,
 	encode_compound_hdr(xdr, req, &hdr);
 	encode_sequence(xdr, &args->seq_args, &hdr);
 	encode_putfh(xdr, args->dir_fh, &hdr);
-	encode_lookup(xdr, args->name, &hdr);
+	encode_lookup(xdr, name, &hdr);
 	encode_getfh(xdr, &hdr);
 	encode_getfattr(xdr, args->bitmask, &hdr);
 	encode_nops(&hdr);
@@ -2122,6 +2127,8 @@ static void nfs4_xdr_enc_openattr(struct rpc_rqst *req, struct xdr_stream *xdr,
 static void nfs4_xdr_enc_remove(struct rpc_rqst *req, struct xdr_stream *xdr,
 				const struct nfs_removeargs *args)
 {
+	const struct qstr *name = args->encrypted_name.len
+		? &args->encrypted_name : &args->name;
 	struct compound_hdr hdr = {
 		.minorversion = nfs4_xdr_minorversion(&args->seq_args),
 	};
@@ -2129,7 +2136,7 @@ static void nfs4_xdr_enc_remove(struct rpc_rqst *req, struct xdr_stream *xdr,
 	encode_compound_hdr(xdr, req, &hdr);
 	encode_sequence(xdr, &args->seq_args, &hdr);
 	encode_putfh(xdr, args->fh, &hdr);
-	encode_remove(xdr, &args->name, &hdr);
+	encode_remove(xdr, name, &hdr);
 	encode_nops(&hdr);
 }
 
@@ -2139,6 +2146,10 @@ static void nfs4_xdr_enc_remove(struct rpc_rqst *req, struct xdr_stream *xdr,
 static void nfs4_xdr_enc_rename(struct rpc_rqst *req, struct xdr_stream *xdr,
 				const struct nfs_renameargs *args)
 {
+	const struct qstr *old_name = args->encrypted_old_name.len
+		? &args->encrypted_old_name : args->old_name;
+	const struct qstr *new_name = args->encrypted_new_name.len
+		? &args->encrypted_new_name : args->new_name;
 	struct compound_hdr hdr = {
 		.minorversion = nfs4_xdr_minorversion(&args->seq_args),
 	};
@@ -2148,7 +2159,7 @@ static void nfs4_xdr_enc_rename(struct rpc_rqst *req, struct xdr_stream *xdr,
 	encode_putfh(xdr, args->old_dir, &hdr);
 	encode_savefh(xdr, &hdr);
 	encode_putfh(xdr, args->new_dir, &hdr);
-	encode_rename(xdr, args->old_name, args->new_name, &hdr);
+	encode_rename(xdr, old_name, new_name, &hdr);
 	encode_nops(&hdr);
 }
 
@@ -2158,6 +2169,8 @@ static void nfs4_xdr_enc_rename(struct rpc_rqst *req, struct xdr_stream *xdr,
 static void nfs4_xdr_enc_link(struct rpc_rqst *req, struct xdr_stream *xdr,
 			     const struct nfs4_link_arg *args)
 {
+	const struct qstr *name = args->encrypted_name.len
+		? &args->encrypted_name : args->name;
 	struct compound_hdr hdr = {
 		.minorversion = nfs4_xdr_minorversion(&args->seq_args),
 	};
@@ -2167,7 +2180,7 @@ static void nfs4_xdr_enc_link(struct rpc_rqst *req, struct xdr_stream *xdr,
 	encode_putfh(xdr, args->fh, &hdr);
 	encode_savefh(xdr, &hdr);
 	encode_putfh(xdr, args->dir_fh, &hdr);
-	encode_link(xdr, args->name, &hdr);
+	encode_link(xdr, name, &hdr);
 	encode_restorefh(xdr, &hdr);
 	encode_getfattr(xdr, args->bitmask, &hdr);
 	encode_nops(&hdr);
@@ -2668,6 +2681,8 @@ static void nfs4_xdr_enc_fs_locations(struct rpc_rqst *req,
 				      struct xdr_stream *xdr,
 				      struct nfs4_fs_locations_arg *args)
 {
+	const struct qstr *name = args->encrypted_name.len
+		? &args->encrypted_name : args->name;
 	struct compound_hdr hdr = {
 		.minorversion = nfs4_xdr_minorversion(&args->seq_args),
 	};
@@ -2676,7 +2691,7 @@ static void nfs4_xdr_enc_fs_locations(struct rpc_rqst *req,
 	encode_compound_hdr(xdr, req, &hdr);
 	encode_sequence(xdr, &args->seq_args, &hdr);
 	encode_putfh(xdr, args->dir_fh, &hdr);
-	encode_lookup(xdr, args->name, &hdr);
+	encode_lookup(xdr, name, &hdr);
 	replen = hdr.replen;	/* get the attribute into args->page */
 	encode_fs_locations(xdr, args->bitmask, &hdr);
 
@@ -2692,6 +2707,8 @@ static void nfs4_xdr_enc_secinfo(struct rpc_rqst *req,
 				struct xdr_stream *xdr,
 				struct nfs4_secinfo_arg *args)
 {
+	const struct qstr *name = args->encrypted_name.len
+		? &args->encrypted_name : args->name;
 	struct compound_hdr hdr = {
 		.minorversion = nfs4_xdr_minorversion(&args->seq_args),
 	};
@@ -2699,7 +2716,7 @@ static void nfs4_xdr_enc_secinfo(struct rpc_rqst *req,
 	encode_compound_hdr(xdr, req, &hdr);
 	encode_sequence(xdr, &args->seq_args, &hdr);
 	encode_putfh(xdr, args->dir_fh, &hdr);
-	encode_secinfo(xdr, args->name, &hdr);
+	encode_secinfo(xdr, name, &hdr);
 	encode_nops(&hdr);
 }
 

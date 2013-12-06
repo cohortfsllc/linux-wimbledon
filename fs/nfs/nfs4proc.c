@@ -55,6 +55,7 @@
 #include <linux/xattr.h>
 #include <linux/utsname.h>
 #include <linux/freezer.h>
+#include "fnencode.h"
 
 #include "nfs4_fs.h"
 #include "delegation.h"
@@ -203,6 +204,27 @@ const u32 nfs4_fs_locations_bitmap[2] = {
 	| FATTR4_WORD1_TIME_MODIFY
 	| FATTR4_WORD1_MOUNTED_ON_FILEID
 };
+
+static int set_encrypted_filename(struct nfs_server *server,
+	const struct qstr *name, struct qstr *encrypted_name)
+{
+	int rc = 0;
+	char *cp;
+
+	if (server->client_side_key) {
+		cp = encrypt_filename(name->name,
+			server->client_side_key,
+			server->client_side_keylen);
+		if (IS_ERR(cp)) {
+			rc = PTR_ERR(cp);
+			goto Done;
+		}
+		encrypted_name->name = cp;
+		encrypted_name->len = strlen(cp);
+	}
+Done:
+	return rc;
+}
 
 static void nfs4_setup_readdir(u64 cookie, __be32 *verifier, struct dentry *dentry,
 		struct nfs4_readdir_arg *readdir)
@@ -824,11 +846,21 @@ static struct nfs4_opendata *nfs4_opendata_alloc(struct dentry *dentry,
 	struct dentry *parent = dget_parent(dentry);
 	struct inode *dir = parent->d_inode;
 	struct nfs_server *server = NFS_SERVER(dir);
-	struct nfs4_opendata *p;
+	struct nfs4_opendata *p, *errp;
+	int status;
 
+	errp = ERR_PTR(-ENOMEM);
 	p = kzalloc(sizeof(*p), gfp_mask);
-	if (p == NULL)
+	if (p == NULL) {
 		goto err;
+	}
+	status = set_encrypted_filename(server,
+		&dentry->d_name,
+		&p->o_arg.encrypted_name);
+	if (status) {
+		errp = ERR_PTR(status);
+		goto err_free;
+	}
 	p->o_arg.seqid = nfs_alloc_seqid(&sp->so_seqid, gfp_mask);
 	if (p->o_arg.seqid == NULL)
 		goto err_free;
@@ -888,7 +920,7 @@ err_free:
 	kfree(p);
 err:
 	dput(parent);
-	return NULL;
+	return errp;
 }
 
 static void nfs4_opendata_free(struct kref *kref)
@@ -905,12 +937,13 @@ static void nfs4_opendata_free(struct kref *kref)
 	dput(p->dentry);
 	nfs_sb_deactive(sb);
 	nfs_fattr_free_names(&p->f_attr);
+	kfree(p->o_arg.encrypted_name.name);
 	kfree(p);
 }
 
 static void nfs4_opendata_put(struct nfs4_opendata *p)
 {
-	if (p != NULL)
+	if (p && !IS_ERR(p))
 		kref_put(&p->kref, nfs4_opendata_free);
 }
 
@@ -1259,8 +1292,8 @@ static struct nfs4_opendata *nfs4_open_recoverdata_alloc(struct nfs_open_context
 
 	opendata = nfs4_opendata_alloc(ctx->dentry, state->owner, 0, 0,
 			NULL, claim, GFP_NOFS);
-	if (opendata == NULL)
-		return ERR_PTR(-ENOMEM);
+	if (IS_ERR(opendata))
+		return (void*) opendata;	/* ERR_PTR(PTR_ERR(opendata)) */
 	opendata->state = state;
 	atomic_inc(&state->count);
 	return opendata;
@@ -2010,8 +2043,10 @@ static int _nfs4_do_open(struct inode *dir,
 		claim = NFS4_OPEN_CLAIM_FH;
 	opendata = nfs4_opendata_alloc(dentry, sp, fmode, flags, sattr,
 			claim, GFP_KERNEL);
-	if (opendata == NULL)
+	if (IS_ERR(opendata)) {
+		status = PTR_ERR(opendata);
 		goto err_put_state_owner;
+	}
 
 	if (ctx_th && server->attr_bitmask[2] & FATTR4_WORD2_MDSTHRESHOLD) {
 		opendata->f_attr.mdsthreshold = pnfs_mdsthreshold_alloc();
@@ -2823,9 +2858,14 @@ static int _nfs4_proc_lookup(struct rpc_clnt *clnt, struct inode *dir,
 
 	nfs_fattr_init(fattr);
 
+	status = set_encrypted_filename(server, name, &args.encrypted_name);
+	if (status) goto out;
+
 	dprintk("NFS call  lookup %s\n", name->name);
 	status = nfs4_call_sync(clnt, server, &msg, &args.seq_args, &res.seq_res, 0);
 	dprintk("NFS reply lookup: %d\n", status);
+out:
+	kfree(args.encrypted_name.name);
 	return status;
 }
 
@@ -3071,9 +3111,14 @@ static int _nfs4_proc_remove(struct inode *dir, struct qstr *name)
 	};
 	int status;
 
+	status = set_encrypted_filename(server, name, &args.encrypted_name);
+	if (status) goto out;
+
 	status = nfs4_call_sync(server->client, server, &msg, &args.seq_args, &res.seq_res, 1);
 	if (status == 0)
 		update_changeattr(dir, &res.cinfo);
+out:
+	kfree(args.encrypted_name.name);
 	return status;
 }
 
@@ -3172,13 +3217,21 @@ static int _nfs4_proc_rename(struct inode *old_dir, struct qstr *old_name,
 		.rpc_argp = &arg,
 		.rpc_resp = &res,
 	};
-	int status = -ENOMEM;
-	
+	int status;
+
+	status = set_encrypted_filename(server, old_name, &arg.encrypted_old_name);
+	if (status) goto out;
+	status = set_encrypted_filename(server, new_name, &arg.encrypted_new_name);
+	if (status) goto out;
+
 	status = nfs4_call_sync(server->client, server, &msg, &arg.seq_args, &res.seq_res, 1);
 	if (!status) {
 		update_changeattr(old_dir, &res.old_cinfo);
 		update_changeattr(new_dir, &res.new_cinfo);
 	}
+out:
+	kfree(arg.encrypted_old_name.name);
+	kfree(arg.encrypted_new_name.name);
 	return status;
 }
 
@@ -3219,12 +3272,16 @@ static int _nfs4_proc_link(struct inode *inode, struct inode *dir, struct qstr *
 	if (res.fattr == NULL)
 		goto out;
 
+	status = set_encrypted_filename(server, name, &arg.encrypted_name);
+	if (status) goto out;
+
 	status = nfs4_call_sync(server->client, server, &msg, &arg.seq_args, &res.seq_res, 1);
 	if (!status) {
 		update_changeattr(dir, &res.cinfo);
 		nfs_post_op_update_inode(inode, res.fattr);
 	}
 out:
+	kfree(arg.encrypted_name.name);
 	nfs_free_fattr(res.fattr);
 	return status;
 }
@@ -3253,11 +3310,17 @@ static struct nfs4_createdata *nfs4_alloc_createdata(struct inode *dir,
 		struct qstr *name, struct iattr *sattr, u32 ftype)
 {
 	struct nfs4_createdata *data;
+	struct nfs_server *server = NFS_SERVER(dir);
+	int rc;
 
 	data = kzalloc(sizeof(*data), GFP_KERNEL);
 	if (data != NULL) {
-		struct nfs_server *server = NFS_SERVER(dir);
-
+		rc = set_encrypted_filename(server, name, &data->arg.encrypted_name);
+		if (rc) {
+			kfree(data);
+			data = ERR_PTR(rc);
+			goto Done;
+		}
 		data->msg.rpc_proc = &nfs4_procedures[NFSPROC4_CLNT_CREATE];
 		data->msg.rpc_argp = &data->arg;
 		data->msg.rpc_resp = &data->res;
@@ -3271,7 +3334,10 @@ static struct nfs4_createdata *nfs4_alloc_createdata(struct inode *dir,
 		data->res.fh = &data->fh;
 		data->res.fattr = &data->fattr;
 		nfs_fattr_init(data->res.fattr);
+	} else {
+		data = ERR_PTR(-ENOMEM);
 	}
+Done:
 	return data;
 }
 
@@ -3288,6 +3354,10 @@ static int nfs4_do_create(struct inode *dir, struct dentry *dentry, struct nfs4_
 
 static void nfs4_free_createdata(struct nfs4_createdata *data)
 {
+	if (IS_ERR(data))
+		return;
+	if (data)
+		kfree(data->arg.encrypted_name.name);
 	kfree(data);
 }
 
@@ -3302,8 +3372,10 @@ static int _nfs4_proc_symlink(struct inode *dir, struct dentry *dentry,
 
 	status = -ENOMEM;
 	data = nfs4_alloc_createdata(dir, &dentry->d_name, sattr, NF4LNK);
-	if (data == NULL)
+	if (IS_ERR(data)) {
+		status = PTR_ERR(data);
 		goto out;
+	}
 
 	data->msg.rpc_proc = &nfs4_procedures[NFSPROC4_CLNT_SYMLINK];
 	data->arg.u.symlink.pages = &page;
@@ -3337,8 +3409,10 @@ static int _nfs4_proc_mkdir(struct inode *dir, struct dentry *dentry,
 	int status = -ENOMEM;
 
 	data = nfs4_alloc_createdata(dir, &dentry->d_name, sattr, NF4DIR);
-	if (data == NULL)
+	if (IS_ERR(data)) {
+		status = PTR_ERR(data);
 		goto out;
+	}
 
 	status = nfs4_do_create(dir, dentry, data);
 
@@ -3423,8 +3497,10 @@ static int _nfs4_proc_mknod(struct inode *dir, struct dentry *dentry,
 	int status = -ENOMEM;
 
 	data = nfs4_alloc_createdata(dir, &dentry->d_name, sattr, NF4SOCK);
-	if (data == NULL)
+	if (IS_ERR(data)) {
+		status = PTR_ERR(data);
 		goto out;
+	}
 
 	if (S_ISFIFO(mode))
 		data->arg.ftype = NF4FIFO;
@@ -5530,16 +5606,21 @@ static int _nfs4_proc_fs_locations(struct rpc_clnt *client, struct inode *dir,
 
 	/* Ask for the fileid of the absent filesystem if mounted_on_fileid
 	 * is not supported */
-	if (NFS_SERVER(dir)->attr_bitmask[1] & FATTR4_WORD1_MOUNTED_ON_FILEID)
+	if (server->attr_bitmask[1] & FATTR4_WORD1_MOUNTED_ON_FILEID)
 		bitmask[1] |= FATTR4_WORD1_MOUNTED_ON_FILEID;
 	else
 		bitmask[0] |= FATTR4_WORD0_FILEID;
+
+	status = set_encrypted_filename(server, name, &args.encrypted_name);
+	if (status) goto out;
 
 	nfs_fattr_init(&fs_locations->fattr);
 	fs_locations->server = server;
 	fs_locations->nlocations = 0;
 	status = nfs4_call_sync(client, server, &msg, &args.seq_args, &res.seq_res, 0);
 	dprintk("%s: returned status = %d\n", __func__, status);
+out:
+	kfree(args.encrypted_name.name);
 	return status;
 }
 
@@ -5560,6 +5641,7 @@ int nfs4_proc_fs_locations(struct rpc_clnt *client, struct inode *dir,
 
 static int _nfs4_proc_secinfo(struct inode *dir, const struct qstr *name, struct nfs4_secinfo_flavors *flavors)
 {
+	struct nfs_server *server = NFS_SERVER(dir);
 	int status;
 	struct nfs4_secinfo_arg args = {
 		.dir_fh = NFS_FH(dir),
@@ -5575,8 +5657,14 @@ static int _nfs4_proc_secinfo(struct inode *dir, const struct qstr *name, struct
 	};
 
 	dprintk("NFS call  secinfo %s\n", name->name);
+
+	status = set_encrypted_filename(server, name, &args.encrypted_name);
+	if (status) goto out;
+
 	status = nfs4_call_sync(NFS_SERVER(dir)->client, NFS_SERVER(dir), &msg, &args.seq_args, &res.seq_res, 0);
+out:
 	dprintk("NFS reply  secinfo: %d\n", status);
+	kfree(args.encrypted_name.name);
 	return status;
 }
 
