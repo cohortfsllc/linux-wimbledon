@@ -3835,7 +3835,8 @@ static int decode_attr_owner(struct xdr_stream *xdr, uint32_t *bitmap,
 		if (unlikely(!p))
 			goto out_overflow;
 		if (owner_name != NULL) {
-			owner_name->data = kmemdup(p, len, GFP_NOWAIT);
+			owner_name->data = kmemdup(p, len+1, GFP_NOWAIT);
+			owner_name->data[len] = 0;
 			if (owner_name->data != NULL) {
 				owner_name->len = len;
 				ret = NFS_ATTR_FATTR_OWNER_NAME;
@@ -3878,7 +3879,8 @@ static int decode_attr_group(struct xdr_stream *xdr, uint32_t *bitmap,
 		if (unlikely(!p))
 			goto out_overflow;
 		if (group_name != NULL) {
-			group_name->data = kmemdup(p, len, GFP_NOWAIT);
+			group_name->data = kmemdup(p, len+1, GFP_NOWAIT);
+			group_name->data[len] = 0;
 			if (group_name->data != NULL) {
 				group_name->len = len;
 				ret = NFS_ATTR_FATTR_GROUP_NAME;

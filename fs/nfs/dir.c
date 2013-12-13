@@ -219,7 +219,7 @@ int nfs_readdir_make_qstr(struct nfs_server *server, struct qstr *string,
 		}
 		len = strlen(cp);
 	} else {
-		cp = kmemdup(name, len, GFP_KERNEL);
+		cp = kmemdup(name, len+1, GFP_KERNEL);
 		if (!cp)
 			return -ENOMEM;
 	}
