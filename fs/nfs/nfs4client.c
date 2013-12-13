@@ -853,6 +853,8 @@ struct nfs_server *nfs4_create_server(struct nfs_mount_info *mount_info,
 
 	dprintk("--> nfs4_create_server()\n");
 
+	mount_info->set_pseudo_root_flag = 1;
+
 	server = nfs_alloc_server();
 	if (!server)
 		return ERR_PTR(-ENOMEM);

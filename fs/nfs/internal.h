@@ -142,6 +142,7 @@ struct nfs_mount_info {
 	struct nfs_parsed_mount_data *parsed;
 	struct nfs_clone_mount *cloned;
 	struct nfs_fh *mntfh;
+	int set_pseudo_root_flag;
 };
 
 extern int nfs_mount(struct nfs_mount_request *info);

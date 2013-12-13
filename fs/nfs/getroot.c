@@ -128,5 +128,6 @@ struct dentry *nfs_get_root(struct super_block *sb, struct nfs_fh *mntfh,
 out:
 	kfree(name);
 	nfs_free_fattr(fsinfo.fattr);
+printk(KERN_ERR "NFS: nfs_get_root inode=%#lx ret=%#lx\n", (long)inode, (long)ret);
 	return ret;
 }

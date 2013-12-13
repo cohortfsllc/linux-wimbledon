@@ -8,6 +8,8 @@
 
 #define ALG "ctr(aes)"
 
+#define NAME_ALLOC_LEN(len)     ((len+16) & ~15)
+
 char *
 encrypt_filename(const char *c, const unsigned char *k, int kl)
 {
@@ -78,7 +80,7 @@ decrypt_filename(const char *c, const unsigned char *k, int kl)
 	struct scatterlist sgi[1], sgo[1];
 	unsigned char *work;
 	unsigned char ivec[16];
-	int outlen;
+	int outlen = 0, rlen;
 	unsigned int sum1, sum2;
 	char *ret = 0, *rp = 0;
 	struct blkcipher_desc desc[1];
@@ -97,6 +99,11 @@ decrypt_filename(const char *c, const unsigned char *k, int kl)
 		goto Done;
 	}
 	work = b92_decode(c, &outlen);
+	if (!work || outlen < 5) {
+		printk(KERN_ERR "decrypt_filename: bad filename %d/<%s> %d\n", (int)strlen(c), c, outlen);
+		ret = ERR_PTR(-ENOMEM);
+		goto Done;
+	}
 	if (!work) {
 		printk(KERN_ERR "decrypt_filename: b92_decode failed!\n");
 		ret = ERR_PTR(-ENOMEM);
@@ -105,9 +112,10 @@ decrypt_filename(const char *c, const unsigned char *k, int kl)
 	memcpy(ivec, work, 4);
 	memset(ivec+4, 0, sizeof ivec-5);
 	ivec[sizeof ivec-1]=1;
-	rp = kmalloc(outlen-3, GFP_KERNEL);
+	rlen = NAME_ALLOC_LEN(outlen-4);
+	rp = kmalloc(rlen, GFP_KERNEL);
 	if (!rp) {
-		printk(KERN_ERR "decrypt_filename: can't allocate %d bytes\n", outlen-3);
+		printk(KERN_ERR "decrypt_filename: can't allocate %d bytes\n", rlen-3);
 		ret = ERR_PTR(-ENOMEM);
 		goto Done;
 	}

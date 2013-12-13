@@ -1151,7 +1151,7 @@ static void encode_create(struct xdr_stream *xdr, const struct nfs4_create_arg *
 		break;
 	}
 
-	encode_string(xdr, name->len, create->name->name);
+	encode_string(xdr, name->len, name->name);
 	encode_attrs(xdr, create->attrs, create->server);
 }
 

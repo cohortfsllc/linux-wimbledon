@@ -2858,8 +2858,10 @@ static int _nfs4_proc_lookup(struct rpc_clnt *clnt, struct inode *dir,
 
 	nfs_fattr_init(fattr);
 
-	status = set_encrypted_filename(server, name, &args.encrypted_name);
-	if (status) goto out;
+	if (!NFS_I(dir)->is_pseudo_root) {
+		status = set_encrypted_filename(server, name, &args.encrypted_name);
+		if (status) goto out;
+	}
 
 	dprintk("NFS call  lookup %s\n", name->name);
 	status = nfs4_call_sync(clnt, server, &msg, &args.seq_args, &res.seq_res, 0);
@@ -5611,8 +5613,10 @@ static int _nfs4_proc_fs_locations(struct rpc_clnt *client, struct inode *dir,
 	else
 		bitmask[0] |= FATTR4_WORD0_FILEID;
 
-	status = set_encrypted_filename(server, name, &args.encrypted_name);
-	if (status) goto out;
+	if (!NFS_I(dir)->is_pseudo_root) {
+		status = set_encrypted_filename(server, name, &args.encrypted_name);
+		if (status) goto out;
+	}
 
 	nfs_fattr_init(&fs_locations->fattr);
 	fs_locations->server = server;
@@ -5658,8 +5662,10 @@ static int _nfs4_proc_secinfo(struct inode *dir, const struct qstr *name, struct
 
 	dprintk("NFS call  secinfo %s\n", name->name);
 
-	status = set_encrypted_filename(server, name, &args.encrypted_name);
-	if (status) goto out;
+	if (!NFS_I(dir)->is_pseudo_root) {
+		status = set_encrypted_filename(server, name, &args.encrypted_name);
+		if (status) goto out;
+	}
 
 	status = nfs4_call_sync(NFS_SERVER(dir)->client, NFS_SERVER(dir), &msg, &args.seq_args, &res.seq_res, 0);
 out:

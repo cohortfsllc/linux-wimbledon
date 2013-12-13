@@ -201,16 +201,17 @@ void nfs_readdir_clear_array(struct page *page)
  * Copy (and perhaps decrypt) filename.
  * the caller is responsible for freeing qstr.name
  * Usually the strings will be stolen by nfs_readdir_add_to_array
- * and then freed in
- * nfs_clear_readdir_array()
+ * and then freed in nfs_clear_readdir_array()
  */
+#define IS_DOT_DOTDOT(n)	(*n=='.'&&(!n[1]||(n[1]=='.'&&!n[2])))
 static
 int nfs_readdir_make_qstr(struct nfs_server *server, struct qstr *string,
 	const char *name, unsigned int len)
 {
 	char *cp;
 
-	if (server->client_side_key) {
+/* in v4: . and .. are synthesized in nfs4_setup_readdir -- and are never encrypted */
+	if (!IS_DOT_DOTDOT(name) && server->client_side_key) {
 		cp = decrypt_filename(name,
 			server->client_side_key,
 			server->client_side_keylen);
@@ -1302,6 +1303,58 @@ struct dentry *nfs_lookup(struct inode *dir, struct dentry * dentry, unsigned in
 	parent = dentry->d_parent;
 	/* Protect against concurrent sillydeletes */
 	nfs_block_sillyrename(parent);
+{
+if (!dentry->d_parent) {
+printk(KERN_ERR "NFS: lookup: np for %s, %#lx/%d %#lx\n",
+			dentry->d_name.name,
+			(long)dentry->d_inode,
+			NFS_I(dir)->is_pseudo_root,
+			(long)dir);
+} else if (!dentry->d_parent->d_parent) {
+if (dentry->d_parent->d_inode) {
+printk(KERN_ERR "NFS: lookup: npp %s for %s, %#lx/%d %#lx/%d %#lx\n",
+			dentry->d_parent->d_name.name,
+			dentry->d_name.name,
+			(long)dentry->d_parent->d_inode,
+			NFS_I(dentry->d_parent->d_inode)->is_pseudo_root,
+			(long)dentry->d_inode,
+			NFS_I(dir)->is_pseudo_root,
+			(long)dir);
+} else {
+printk(KERN_ERR "NFS: lookup: npp %s for %s, %#lx/? %#lx/%d %#lx\n",
+			dentry->d_parent->d_name.name,
+			dentry->d_name.name,
+			(long)dentry->d_parent->d_inode,
+			(long)dentry->d_inode,
+			NFS_I(dir)->is_pseudo_root,
+			(long)dir);
+}
+} else {
+if (dentry->d_parent->d_inode && dentry->d_parent->d_parent->d_inode) {
+printk(KERN_ERR "NFS: lookup: p %s/%s for %s, %#lx/%d %#lx/%d %#lx/%d %#lx\n",
+			dentry->d_parent->d_parent->d_name.name,
+			dentry->d_parent->d_name.name,
+			dentry->d_name.name,
+			(long)dentry->d_parent->d_parent->d_inode,
+			NFS_I(dentry->d_parent->d_parent->d_inode)->is_pseudo_root,
+			(long)dentry->d_parent->d_inode,
+			NFS_I(dentry->d_parent->d_inode)->is_pseudo_root,
+			(long)dentry->d_inode,
+			NFS_I(dir)->is_pseudo_root,
+			(long)dir);
+} else {
+printk(KERN_ERR "NFS: lookup: p %s/%s for %s, %#lx %#lx %#lx/%d %#lx\n",
+			dentry->d_parent->d_parent->d_name.name,
+			dentry->d_parent->d_name.name,
+			dentry->d_name.name,
+			(long)dentry->d_parent->d_parent->d_inode,
+			(long)dentry->d_parent->d_inode,
+			(long)dentry->d_inode,
+			NFS_I(dir)->is_pseudo_root,
+			(long)dir);
+}
+}
+}
 	error = NFS_PROTO(dir)->lookup(dir, &dentry->d_name, fhandle, fattr);
 	if (error == -ENOENT)
 		goto no_entry;

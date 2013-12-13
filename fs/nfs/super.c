@@ -2537,6 +2537,9 @@ struct dentry *nfs_fs_mount_common(struct nfs_server *server,
 	mntroot = nfs_get_root(s, mount_info->mntfh, dev_name);
 	if (IS_ERR(mntroot))
 		goto error_splat_super;
+	NFS_I(mntroot->d_inode)->is_pseudo_root = mount_info->set_pseudo_root_flag;
+printk(KERN_INFO "NFS: nfs_fs_mount_common: i=%lx/%d mi=%lx\n",
+(long)mntroot->d_inode, mount_info->set_pseudo_root_flag, (long)mount_info);
 
 	error = mount_info->set_security(s, mntroot, mount_info);
 	if (error)

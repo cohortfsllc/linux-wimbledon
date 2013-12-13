@@ -125,6 +125,7 @@ struct nfs_inode {
 	 */
 	unsigned long		flags;			/* atomic bit ops */
 	unsigned long		cache_validity;		/* bit mask */
+	int			is_pseudo_root;
 
 	/*
 	 * read_cache_jiffies is when we started read-caching this inode.
